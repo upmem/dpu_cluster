@@ -1,0 +1,7 @@
+[package]
+name = "dpu-cluster-frontend"
+version = "0.1.0"
+authors = ["jchauzi <jchauzi@upmem.com>"]
+
+[dependencies]
+dpu-cluster-core = { path = "../dpu-cluster-core" }

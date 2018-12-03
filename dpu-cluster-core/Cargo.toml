@@ -1,0 +1,8 @@
+[package]
+name = "dpu-cluster-core"
+version = "0.1.0"
+authors = ["jchauzi <jchauzi@upmem.com>"]
+
+[dependencies]
+dpu-sys = { path = "../dpu-sys" }
+dpu-elf-loader = { path = "../dpu-elf-loader" }
