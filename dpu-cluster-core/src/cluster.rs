@@ -4,14 +4,14 @@ use dpu_sys::DpuRank;
 use dpu_sys::DpuRankDescription;
 use dpu_sys::DpuTarget;
 use error::ClusterError;
-use dpu;
+use dpu::Mapping;
 use dpu::DpuId;
 
 #[derive(Debug)]
 pub struct Cluster {
     config: ClusterConfiguration,
     driver: Driver,
-    workers: dpu::Mapping
+    workers: Mapping
 }
 
 impl Cluster {
@@ -40,7 +40,7 @@ impl Cluster {
 
         let driver = Driver::new(ranks, rank_description);
 
-        let workers = dpu::Mapping::new(dpu_ids);
+        let workers = Mapping::new(dpu_ids);
 
         Ok(Cluster { config, driver, workers })
     }

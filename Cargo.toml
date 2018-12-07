@@ -2,6 +2,5 @@
 members = [
     "dpu-cluster-frontend",
     "dpu-cluster-core",
-    "dpu-elf-loader",
     "dpu-sys",
 ]

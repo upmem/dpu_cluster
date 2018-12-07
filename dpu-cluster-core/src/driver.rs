@@ -16,13 +16,12 @@ use dpu_sys::DpuRankTransferMatrix;
 use error::ClusterError;
 use memory::Location;
 use memory::MemoryImage;
-use memory_utilities;
-use memory_utilities::MemoryImageCollection;
 use program::Program;
 use view::FastSelection;
 use view::Selection;
 use view::View;
 use dpu_sys::DpuError;
+use dpu_sys::DpuDebugContext;
 
 #[derive(Debug)]
 pub struct Driver {
@@ -48,13 +47,7 @@ struct Watcher {
     rank_handler: Arc<RankHandler>,
 }
 
-#[derive(Debug, Clone)]
-pub enum DpuState {
-    Idle,
-    Running,
-    Fault
-}
-
+#[derive(Clone)]
 pub enum FaultCause {
     Breakpoint,
     Memory,
@@ -63,14 +56,13 @@ pub enum FaultCause {
 
 pub struct FaultInformation {
     dpu: DpuId,
-    thread: u8,
-    cause: FaultCause
+    context: DpuDebugContext
 }
 
 pub enum RunStatus {
     Idle,
     Running,
-    Fault(Vec<FaultInformation>)
+    Fault(Vec<DpuId>)
 }
 
 impl Default for RunStatus {
@@ -92,10 +84,51 @@ enum ClusterMessage {
 }
 
 const BOOTSTRAP_THREAD: u8 = 0;
+const PRIMARY_MRAM: u32 = 0;
 
-impl Default for DpuState {
-    fn default() -> Self {
-        DpuState::Idle
+trait FromRankId<'a> {
+    fn from_rank_id(rank_id: u8, handler: &'a RankHandler) -> Self;
+}
+
+impl <'a> FromRankId<'a> for u8 {
+    fn from_rank_id(rank_id: u8, handler: &'a RankHandler) -> Self {
+        rank_id
+    }
+}
+
+impl <'a> FromRankId<'a> for &'a DpuRank {
+    fn from_rank_id(rank_id: u8, handler: &'a RankHandler) -> Self {
+        handler.get_rank(rank_id)
+    }
+}
+
+trait Mergeable {
+    fn merge_with(&self, other: &Self) -> Self;
+}
+
+impl Mergeable for () {
+    fn merge_with(&self, other: &Self) -> Self {
+        ()
+    }
+}
+
+impl Mergeable for RunStatus {
+    fn merge_with(&self, other: &Self) -> Self {
+        match (self, other) {
+            (RunStatus::Idle, RunStatus::Idle) => RunStatus::Idle,
+            (RunStatus::Idle, RunStatus::Running) => RunStatus::Running,
+            (RunStatus::Idle, RunStatus::Fault(other_faults)) => RunStatus::Fault(other_faults.to_vec()),
+            (RunStatus::Running, RunStatus::Idle) => RunStatus::Running,
+            (RunStatus::Running, RunStatus::Running) => RunStatus::Running,
+            (RunStatus::Running, RunStatus::Fault(other_faults)) => RunStatus::Fault(other_faults.to_vec()),
+            (RunStatus::Fault(faults), RunStatus::Idle) => RunStatus::Fault(faults.to_vec()),
+            (RunStatus::Fault(faults), RunStatus::Running) => RunStatus::Fault(faults.to_vec()),
+            (RunStatus::Fault(faults), RunStatus::Fault(other_faults)) => {
+                let mut all_faults = faults.to_vec();
+                all_faults.append(&mut other_faults.to_vec());
+                RunStatus::Fault(all_faults)
+            },
+        }
     }
 }
 
@@ -110,17 +143,6 @@ impl Driver {
         Driver { rank_handler, rank_description, watcher }
     }
 
-    fn create_cluster_bitfield(ranks: &[DpuRank], rank_description: &DpuRankDescription) -> Vec<Vec<u32>> {
-        let nr_of_ranks = ranks.len();
-        let nr_of_control_interfaces_per_rank = rank_description.topology.nr_of_control_interfaces as usize;
-        let mut bitfield = Vec::with_capacity(nr_of_control_interfaces_per_rank);
-        bitfield.resize(nr_of_control_interfaces_per_rank, 0);
-
-        let mut run_bitfields = Vec::with_capacity(nr_of_ranks);
-        run_bitfields.resize(nr_of_ranks, bitfield);
-        run_bitfields
-    }
-
     pub fn nr_of_dpus(&self) -> usize {
         self.rank_handler.ranks.len() *
             (self.rank_description.topology.nr_of_control_interfaces as usize) *
@@ -128,36 +150,24 @@ impl Driver {
     }
 
     pub fn load(&self, view: &View, program: &Program) -> Result<(), ClusterError> {
-        let View(selection) = view;
-
-        match selection {
-            FastSelection::Fast(dpu) => self.load_dpu(dpu, program),
-            FastSelection::Normal(Selection::All) => self.load_all(program),
-            FastSelection::Normal(Selection::Some(ranks)) => unimplemented!(), // todo
-            FastSelection::Normal(Selection::None) => Ok(()),
-        }
+        self.dispatch(view,
+                      |dpu| self.load_dpu(dpu, program),
+                      |rank| self.load_rank(rank, program),
+                      || self.load_all(program))
     }
 
-    pub fn copy_to_memory(&self, data: HashMap<Location, &MemoryImage>) -> Result<(), ClusterError> {
-        let transfers = self.group_memory_transfers_per_rank(data);
-
-        for (rank, rank_transfers) in transfers {
-            let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
-            rank.copy_to_mrams(&matrix);
-        }
-
-        Ok(())
+    pub fn boot(&self, view: &View) -> Result<(), ClusterError> {
+        self.dispatch(view,
+                      |dpu| self.boot_dpu(dpu),
+                      |rank| self.boot_rank(rank),
+                      || self.boot_all())
     }
 
-    pub fn copy_from_memory(&self, data: HashMap<Location, &MemoryImage>) -> Result<(), ClusterError> {
-        let transfers = self.group_memory_transfers_per_rank(data);
-
-        for (rank, rank_transfers) in transfers {
-            let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
-            rank.copy_from_mrams(&matrix);
-        }
-
-        Ok(())
+    pub fn fetch_status(&self, view: &View) -> Result<RunStatus, ClusterError> {
+        self.dispatch(view,
+                      |dpu| self.fetch_dpu_status(dpu),
+                      |rank| self.fetch_rank_status(rank),
+                      || self.fetch_all_status())
     }
 
     pub fn run(&self, view: &View) -> Result<RunStatus, ClusterError> {
@@ -171,26 +181,106 @@ impl Driver {
         }
     }
 
-    pub fn boot(&self, view: &View) -> Result<(), ClusterError> {
+    pub fn copy_to_memory(&self, data: HashMap<Location, &mut MemoryImage>) -> Result<(), ClusterError> {
+        let transfers = self.group_memory_transfers_per_rank(data);
+
+        for (rank, rank_transfers) in transfers {
+            let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
+            rank.copy_to_mrams(&matrix);
+        }
+
+        Ok(())
+    }
+
+    pub fn copy_from_memory(&self, data: HashMap<Location, &mut MemoryImage>) -> Result<(), ClusterError> {
+        let transfers = self.group_memory_transfers_per_rank(data);
+
+        for (rank, rank_transfers) in transfers {
+            let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
+            rank.copy_from_mrams(&matrix);
+        }
+
+        Ok(())
+    }
+
+    pub fn fetch_dpu_fault_context(&self, dpu: &DpuId) -> Result<FaultInformation, ClusterError> {
+        let (rank, slice_id, member) = self.destructure(dpu);
+        let mut context =
+            DpuDebugContext::new(self.rank_description.info.nr_of_threads,
+                                 self.rank_description.info.nr_of_work_registers_per_thread,
+                                 self.rank_description.info.nr_of_atomic_bits);
+        rank.initialize_fault_process_for_dpu(slice_id, member, &mut context)?;
+        Ok(FaultInformation { dpu: dpu.clone(), context })
+    }
+
+    fn create_cluster_bitfield(ranks: &[DpuRank], rank_description: &DpuRankDescription) -> Vec<Vec<u32>> {
+        let nr_of_ranks = ranks.len();
+        let nr_of_control_interfaces_per_rank = rank_description.topology.nr_of_control_interfaces as usize;
+        let mut bitfield = Vec::with_capacity(nr_of_control_interfaces_per_rank);
+        bitfield.resize(nr_of_control_interfaces_per_rank, 0);
+
+        let mut run_bitfields = Vec::with_capacity(nr_of_ranks);
+        run_bitfields.resize(nr_of_ranks, bitfield);
+        run_bitfields
+    }
+
+    fn dispatch<'a, T, FnRankArg, FnDpu, FnRank, FnAll>(&'a self, view: &View, for_dpu: FnDpu, for_rank: FnRank, for_all: FnAll) -> Result<T, ClusterError>
+        where T: Default + Mergeable,
+              FnRankArg: FromRankId<'a>,
+              FnDpu: Fn(&DpuId) -> Result<T, ClusterError>,
+              FnRank: Fn(FnRankArg) -> Result<T, ClusterError>,
+              FnAll: FnOnce() -> Result<T, ClusterError>
+    {
         let View(selection) = view;
 
         match selection {
-            FastSelection::Fast(dpu) => self.boot_dpu(dpu),
-            FastSelection::Normal(Selection::All) => self.boot_all(),
-            FastSelection::Normal(Selection::Some(ranks)) => unimplemented!(), // todo
-            FastSelection::Normal(Selection::None) => Ok(()),
+            FastSelection::Fast(dpu) => for_dpu(dpu),
+            FastSelection::Normal(Selection::All) => for_all(),
+            FastSelection::Normal(Selection::None) => Ok(T::default()),
+            FastSelection::Normal(Selection::Some(ranks)) => self.dispatch_for_some_ranks(ranks, for_dpu, for_rank),
         }
     }
 
-    pub fn fetch_status(&self, view: &View) -> Result<RunStatus, ClusterError> {
-        let View(selection) = view;
+    fn dispatch_for_some_ranks<'a, T, FnRankArg, FnDpu, FnRank>(&'a self, ranks: &[Selection<Selection<DpuId>>], for_dpu: FnDpu, for_rank: FnRank) -> Result<T, ClusterError>
+        where T: Default + Mergeable,
+              FnRankArg: FromRankId<'a>,
+              FnDpu: Fn(&DpuId) -> Result<T, ClusterError>,
+              FnRank: Fn(FnRankArg) -> Result<T, ClusterError>
+    {
+        let mut result = T::default();
+        for (rank_id, rank_selection) in ranks.iter().enumerate() {
+            match rank_selection {
+                Selection::All => {
+                    let rank_result = for_rank(FnRankArg::from_rank_id(rank_id as u8, &self.rank_handler))?;
+                    result = result.merge_with(&rank_result);
+                },
+                Selection::None => (),
+                Selection::Some(control_interfaces) => {
+                    // todo: we can be more efficient when the C Interface changes
+                    let mut dpus = Vec::default();
+                    let nr_of_dpus_per_control_interface = self.rank_description.topology.nr_of_dpus_per_control_interface;
 
-        match selection {
-            FastSelection::Fast(dpu) => self.fetch_dpu_status(dpu),
-            FastSelection::Normal(Selection::All) => self.fetch_all_status(),
-            FastSelection::Normal(Selection::Some(ranks)) => unimplemented!(), // todo
-            FastSelection::Normal(Selection::None) => Ok(RunStatus::default()),
+                    for (slice_id, slice_selection) in control_interfaces.iter().enumerate() {
+                        match slice_selection {
+                            Selection::All => {
+                                for member_id in 0..nr_of_dpus_per_control_interface {
+                                    dpus.push(DpuId::new(rank_id as u8, slice_id as u8, member_id));
+                                }
+                            },
+                            Selection::None => (),
+                            Selection::Some(dpu_ids) => dpus.append(&mut dpu_ids.to_vec()),
+                        }
+                    }
+
+                    for dpu in dpus {
+                        let dpu_result = for_dpu(&dpu)?;
+                        result = result.merge_with(&dpu_result);
+                    }
+                },
+            }
         }
+
+        Ok(result)
     }
 
     fn load_all(&self, program: &Program) -> Result<(), ClusterError> {
@@ -226,18 +316,18 @@ impl Driver {
     }
 
     fn boot_all(&self) -> Result<(), ClusterError> {
-        let nr_of_slices = self.rank_description.topology.nr_of_control_interfaces as usize;
-        let mut was_running = Vec::with_capacity(nr_of_slices);
-        was_running.resize(nr_of_slices, 0);
-
         for rank in &self.rank_handler.ranks {
-            self.boot_rank(rank, &mut was_running)?;
+            self.boot_rank(rank)?;
         }
 
         Ok(())
     }
 
-    fn boot_rank(&self, rank: &DpuRank, was_running: &mut [u32]) -> Result<(), ClusterError> {
+    fn boot_rank(&self, rank: &DpuRank) -> Result<(), ClusterError> {
+        let nr_of_slices = self.rank_description.topology.nr_of_control_interfaces as usize;
+        let mut was_running = Vec::with_capacity(nr_of_slices);
+        was_running.resize(nr_of_slices, 0);
+
         rank.launch_thread_on_all(BOOTSTRAP_THREAD, false, was_running.as_mut_ptr())?;
 
         Ok(())
@@ -260,29 +350,70 @@ impl Driver {
         let state = self.rank_handler.state.lock().unwrap();
         let nr_of_ranks = state.run_bitfields.len();
         let nr_of_control_interfaces_per_rank = self.rank_description.topology.nr_of_control_interfaces as usize;
+        let nr_of_dpus_per_control_interface = self.rank_description.topology.nr_of_dpus_per_control_interface;
 
         if let Some(ref err) = state.internal_error {
-            Err(err.clone().into())
-        } else {
-            for rank_id in 0..nr_of_ranks {
-                for slice_id in 0..nr_of_control_interfaces_per_rank {
-                    if state.run_bitfields[rank_id][slice_id] != 0 {
-                        running = true;
-                    }
-                    if state.fault_bitfields[rank_id][slice_id] != 0 {
-                        fault = true;
-                        unimplemented!(); // todo
+            return Err(err.clone().into())
+        }
+
+        for rank_id in 0..nr_of_ranks {
+            for slice_id in 0..nr_of_control_interfaces_per_rank {
+                if state.run_bitfields[rank_id][slice_id] != 0 {
+                    running = true;
+                }
+                let fault_bitfield = state.fault_bitfields[rank_id as usize][slice_id];
+                if fault_bitfield != 0 {
+                    fault = true;
+
+                    for member in 0..nr_of_dpus_per_control_interface {
+                        if (fault_bitfield & (1 << (member as u32))) != 0 {
+                            faults.push(DpuId::new(rank_id as u8, slice_id as u8, member));
+                        }
                     }
                 }
             }
+        }
 
-            if !running {
-                Ok(RunStatus::Idle)
-            } else if !fault {
-                Ok(RunStatus::Running)
-            } else {
-                Ok(RunStatus::Fault(faults))
+        if !running {
+            Ok(RunStatus::Idle)
+        } else if !fault {
+            Ok(RunStatus::Running)
+        } else {
+            Ok(RunStatus::Fault(faults))
+        }
+    }
+
+    fn fetch_rank_status(&self, rank_id: u8) -> Result<RunStatus, ClusterError> {
+        let mut running = false;
+        let mut fault = false;
+        let mut faults = Vec::default();
+        let state = self.rank_handler.state.lock().unwrap();
+        let nr_of_control_interfaces_per_rank = self.rank_description.topology.nr_of_control_interfaces as usize;
+        let nr_of_dpus_per_control_interface = self.rank_description.topology.nr_of_dpus_per_control_interface;
+
+        for slice_id in 0..nr_of_control_interfaces_per_rank {
+            if state.run_bitfields[rank_id as usize][slice_id] != 0 {
+                running = true;
             }
+
+            let fault_bitfield = state.fault_bitfields[rank_id as usize][slice_id];
+            if fault_bitfield != 0 {
+                fault = true;
+
+                for member in 0..nr_of_dpus_per_control_interface {
+                    if (fault_bitfield & (1 << (member as u32))) != 0 {
+                        faults.push(DpuId::new(rank_id, slice_id as u8, member));
+                    }
+                }
+            }
+        }
+
+        if !running {
+            Ok(RunStatus::Idle)
+        } else if !fault {
+            Ok(RunStatus::Running)
+        } else {
+            Ok(RunStatus::Fault(faults))
         }
     }
 
@@ -295,22 +426,22 @@ impl Driver {
         let state = self.rank_handler.state.lock().unwrap();
 
         if let Some(ref err) = state.internal_error {
-            Err(err.clone().into())
-        } else {
-            let slice_run = state.run_bitfields[rank_id][slice_id];
-            let slice_fault = state.run_bitfields[rank_id][slice_id];
+            return Err(err.clone().into())
+        }
 
-            if (slice_run & mask) == 0 {
-                Ok(RunStatus::Idle)
-            } else if (slice_fault & mask) == 0 {
-                Ok(RunStatus::Running)
-            } else {
-                unimplemented!() // todo
-            }
+        let slice_run = state.run_bitfields[rank_id][slice_id];
+        let slice_fault = state.run_bitfields[rank_id][slice_id];
+
+        if (slice_run & mask) == 0 {
+            Ok(RunStatus::Idle)
+        } else if (slice_fault & mask) == 0 {
+            Ok(RunStatus::Running)
+        } else {
+            Ok(RunStatus::Fault(vec![dpu.clone()]))
         }
     }
 
-    fn group_memory_transfers_per_rank<'a>(&self, data: HashMap<Location, &'a MemoryImage>) -> HashMap<&DpuRank, HashMap<Location, &'a MemoryImage>> {
+    fn group_memory_transfers_per_rank<'a>(&self, data: HashMap<Location, &'a mut MemoryImage>) -> HashMap<&DpuRank, HashMap<Location, &'a mut MemoryImage>> {
         let mut transfers_per_rank = HashMap::default();
 
         for (location, image) in data {
@@ -327,14 +458,14 @@ impl Driver {
         transfers_per_rank
     }
 
-    fn create_transfer_matrix_for<'a>(&self, rank: &'a DpuRank, mut data: HashMap<Location, &MemoryImage>) -> Result<DpuRankTransferMatrix<'a>, ClusterError> {
+    fn create_transfer_matrix_for<'a>(&self, rank: &'a DpuRank, mut data: HashMap<Location, &mut MemoryImage>) -> Result<DpuRankTransferMatrix<'a>, ClusterError> {
         let matrix = DpuRankTransferMatrix::allocate_for(rank)?;
 
         for (location, image) in data.iter_mut() {
             let (_, slice, member) = location.dpu.members();
             let mut content = image.content()?;
 
-            matrix.add_dpu(slice, member, content.as_mut_ptr(), content.len() as u32, location.offset, memory_utilities::PRIMARY_MRAM);
+            matrix.add_dpu(slice, member, content.as_mut_ptr(), content.len() as u32, location.offset, PRIMARY_MRAM);
         }
 
         Ok(matrix)

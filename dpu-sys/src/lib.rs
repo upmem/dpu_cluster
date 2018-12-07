@@ -98,6 +98,72 @@ pub struct DpuRankDescription {
     _free_internals: *const c_void
 }
 
+pub struct DpuDebugContext {
+    registers: Vec<u32>,
+    pcs: Vec<u16>,
+    atomic_register: Vec<bool>,
+    zero_flags: Vec<bool>,
+    carry_flags: Vec<bool>,
+    scheduling: Vec<u8>,
+
+    raw: RawDpuDebugContext
+}
+
+#[repr(C)]
+struct RawDpuDebugContext {
+    registers: *mut u32,
+    pcs: *mut u16,
+    atomic_register: *mut bool,
+    zero_flags: *mut bool,
+    carry_flags: *mut bool,
+    nr_of_running_threads: u8,
+    scheduling: *mut u8,
+    bkp_fault: bool,
+    dma_fault: bool,
+    mem_fault: bool,
+    bkp_fault_thread_index: u8,
+    dma_fault_thread_index: u8,
+    mem_fault_thread_index: u8
+}
+
+impl DpuDebugContext {
+    pub fn new(nr_of_threads: u8, nr_of_registers: u8, nr_of_atomic_bits: u32) -> Self {
+        let total_nr_of_registers = (nr_of_threads as usize) * (nr_of_registers as usize);
+
+        let mut registers = Vec::with_capacity(total_nr_of_registers);
+        let mut pcs = Vec::with_capacity(nr_of_threads as usize);
+        let mut atomic_register = Vec::with_capacity(nr_of_atomic_bits as usize);
+        let mut zero_flags = Vec::with_capacity(nr_of_threads as usize);
+        let mut carry_flags = Vec::with_capacity(nr_of_threads as usize);
+        let mut scheduling = Vec::with_capacity(nr_of_threads as usize);
+
+        registers.resize(total_nr_of_registers, 0);
+        pcs.resize(nr_of_threads as usize, 0u16);
+        atomic_register.resize(nr_of_atomic_bits as usize, false);
+        zero_flags.resize(nr_of_threads as usize, false);
+        carry_flags.resize(nr_of_threads as usize, false);
+        scheduling.resize(nr_of_threads as usize, 0xFFu8);
+
+        let raw = RawDpuDebugContext {
+            registers: registers.as_mut_ptr(),
+            pcs: pcs.as_mut_ptr(),
+            atomic_register: atomic_register.as_mut_ptr(),
+            zero_flags: zero_flags.as_mut_ptr(),
+            carry_flags: carry_flags.as_mut_ptr(),
+            nr_of_running_threads: 0,
+            scheduling: scheduling.as_mut_ptr(),
+            bkp_fault: false,
+            dma_fault: false,
+            mem_fault: false,
+            bkp_fault_thread_index: 0,
+            dma_fault_thread_index: 0,
+            mem_fault_thread_index: 0,
+        };
+
+        DpuDebugContext { registers, pcs, atomic_register, zero_flags, carry_flags, scheduling, raw }
+    }
+}
+
 #[link(name = "dpucni")]
 extern {
     fn dpu_cni_get_profile_description(backend: DpuType, profile: *const c_char, description: *mut DpuRankDescription) -> CniStatus;
@@ -131,6 +197,11 @@ extern {
     fn dpu_cni_copy_from_mram_number_for_dpus(link: *const c_void, matrix: *const c_void) -> CniStatus;
     fn dpu_cni_copy_to_mram_number_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, to: c_uint, source: *const c_uchar, length: c_uint, mram_number: c_uint) -> CniStatus;
     fn dpu_cni_copy_from_mram_number_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, destination: *mut c_uchar, from: c_uint, length: c_uint, mram_number: c_uint) -> CniStatus;
+    fn dpu_cni_extract_pcs_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, context: *mut RawDpuDebugContext) -> CniStatus;
+    fn dpu_cni_extract_context_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, context: *mut RawDpuDebugContext) -> CniStatus;
+    fn dpu_cni_initialize_fault_process_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, context: *mut RawDpuDebugContext) -> CniStatus;
+    fn dpu_cni_execute_thread_step_in_fault_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, thread: c_uchar, context: *mut RawDpuDebugContext) -> CniStatus;
+    fn dpu_cni_finalize_fault_process_for_dpu(link: *const c_void, slice_id: c_uchar, member_id: c_uchar, context: *mut RawDpuDebugContext) -> CniStatus;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -376,6 +447,36 @@ impl DpuRank {
 
     pub fn copy_from_mram(&self, slice_id: u8, member_id: u8, buffer: *mut u8, length: u32, offset: u32, mram_number: u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_from_mram_number_for_dpu(self.0, slice_id, member_id, buffer, offset, length, mram_number) };
+
+        wrap_cni_result((), status)
+    }
+
+    pub fn extract_pcs_from_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
+        let status = unsafe { dpu_cni_extract_pcs_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
+
+        wrap_cni_result((), status)
+    }
+
+    pub fn extract_context_from_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
+        let status = unsafe { dpu_cni_extract_context_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
+
+        wrap_cni_result((), status)
+    }
+
+    pub fn initialize_fault_process_for_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
+        let status = unsafe { dpu_cni_initialize_fault_process_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
+
+        wrap_cni_result((), status)
+    }
+
+    pub fn execute_thread_step_on_dpu(&self, slice_id: u8, member_id: u8, thread: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
+        let status = unsafe { dpu_cni_execute_thread_step_in_fault_for_dpu(self.0, slice_id, member_id, thread, &mut context.raw as *mut RawDpuDebugContext) };
+
+        wrap_cni_result((), status)
+    }
+
+    pub fn finalize_fault_process_for_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
+        let status = unsafe { dpu_cni_finalize_fault_process_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
 
         wrap_cni_result((), status)
     }
