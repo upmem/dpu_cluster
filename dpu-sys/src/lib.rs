@@ -7,7 +7,7 @@ use std::vec::Vec;
 
 // todo: we should try to generate the CNI interface. Maybe check bindgen (https://github.com/rust-lang/rust-bindgen)
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 enum CniStatus {
     Success,
@@ -28,7 +28,7 @@ enum CniStatus {
     InternalError,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DpuError(CniStatus);
 
 #[derive(Debug)]
@@ -185,7 +185,7 @@ impl DpuTarget {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub struct DpuRank(*const c_void);
 
 #[derive(Debug)]
@@ -201,18 +201,18 @@ fn wrap_cni_result<R>(result: R, status: CniStatus) -> Result<R, DpuError> {
     }
 }
 
-pub fn find_nr_of_available_dpus_for(dpu_type: DpuType, profile: &str) -> Result<u32, DpuError> {
-    // todo
-
-    let nr_of_dpus = match dpu_type {
-        DpuType::FunctionalSimulator => 8,
-        DpuType::Hardware => 0,
-    };
-
-    Ok(nr_of_dpus)
-}
-
 impl DpuRank {
+    pub fn find_nr_of_available_dpus_for(dpu_type: DpuType, profile: &str) -> Result<u32, DpuError> {
+        // todo
+
+        let nr_of_dpus = match dpu_type {
+            DpuType::FunctionalSimulator => 8,
+            DpuType::Hardware => 0,
+        };
+
+        Ok(nr_of_dpus)
+    }
+    
     pub fn get_description_for(dpu_type: DpuType, profile: &str) -> Result<DpuRankDescription, DpuError> {
         // unwrap: CString::new cannot return an error with a Rust String as argument
         let c_profile = CString::new(profile).unwrap();
@@ -390,6 +390,9 @@ impl Drop for DpuRank {
         unsafe { dpu_cni_free_rank(self.0); }
     }
 }
+
+unsafe impl Send for DpuRank {}
+unsafe impl Sync for DpuRank {}
 
 impl <'a> DpuRankTransferMatrix<'a> {
     pub fn allocate_for(rank: &'a DpuRank) -> Result<DpuRankTransferMatrix<'a>, DpuError> {

@@ -4,14 +4,14 @@ use dpu_sys::DpuRank;
 use dpu_sys::DpuRankDescription;
 use dpu_sys::DpuTarget;
 use error::ClusterError;
-use view::View;
-use view::ViewSelection;
+use dpu;
+use dpu::DpuId;
 
 #[derive(Debug)]
 pub struct Cluster {
     config: ClusterConfiguration,
-    all_selected: ViewSelection,
-    driver: Driver
+    driver: Driver,
+    workers: dpu::Mapping
 }
 
 impl Cluster {
@@ -28,27 +28,31 @@ impl Cluster {
         let rank_description = find_description_for(&config.target)?;
         let ranks = allocate_at_least(nr_of_dpus_expected, &rank_description, &config.target)?;
 
-        let all_selected = ViewSelection::all();
+        let mut dpu_ids= Vec::default();
+        for rank_id in 0..ranks.len() as u8 {
+            for slice_id in 0..rank_description.topology.nr_of_control_interfaces {
+                for member_id in 0..rank_description.topology.nr_of_dpus_per_control_interface {
+                    let dpu_id = DpuId::new(rank_id, slice_id, member_id);
+                    dpu_ids.push(dpu_id);
+                }
+            }
+        }
 
         let driver = Driver::new(ranks, rank_description);
 
-        Ok(Cluster { config, all_selected, driver })
-    }
-}
+        let workers = dpu::Mapping::new(dpu_ids);
 
-impl View for Cluster {
-    fn selection(&self) -> &ViewSelection {
-        &self.all_selected
+        Ok(Cluster { config, driver, workers })
     }
 
-    fn driver(&self) -> &Driver {
+    pub fn driver(&self) -> &Driver {
         &self.driver
     }
 }
 
 fn find_nr_of_available_dpus_for(target: &DpuTarget) -> Result<u32, ClusterError> {
     let (dpu_type, ref profile) = target.to_cni_args();
-    let nr_of_dpus = dpu_sys::find_nr_of_available_dpus_for(dpu_type, profile)?;
+    let nr_of_dpus = DpuRank::find_nr_of_available_dpus_for(dpu_type, profile)?;
 
     Ok(nr_of_dpus)
 }
@@ -68,7 +72,7 @@ fn allocate_at_least(nr_of_dpus: u32, description: &DpuRankDescription, target: 
     let (dpu_type, ref profile) = target.to_cni_args();
 
     for _ in 0..nr_of_ranks {
-        let rank = DpuRank::allocate_for(dpu_type, profile)?;
+        let mut rank = DpuRank::allocate_for(dpu_type, profile)?;
         rank.reset_all()?;
         ranks.push(rank);
     }

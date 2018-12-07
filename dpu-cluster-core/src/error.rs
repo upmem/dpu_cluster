@@ -1,10 +1,12 @@
 use dpu_sys::DpuError;
 use dpu_elf_loader::LoaderError;
+use driver::DpuState;
 
 #[derive(Debug)]
 pub enum ClusterError {
     NotEnoughResources {expected: u32, found: u32 },
     IncorrectMemoryImageSize(usize),
+    InvalidCommandInState {command: String, state: DpuState},
     LoadingError(LoaderError),
     LowLevelError(DpuError),
     IOError(std::io::Error)

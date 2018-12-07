@@ -1,15 +1,14 @@
-use memory::MemoryImageCollection;
-use error::ClusterError;
-use program::Program;
-use driver::Driver;
-use memory::MemoryImage;
+use dpu::DpuId;
 
-#[derive(Debug)]
 pub enum Selection<T> {
     All,
     None,
-    One(DpuId),
-    Only(Vec<T>)
+    Some(Vec<T>)
+}
+
+pub enum FastSelection<T> {
+    Fast(DpuId),
+    Normal(Selection<T>)
 }
 
 impl <T> Default for Selection<T> {
@@ -18,39 +17,17 @@ impl <T> Default for Selection<T> {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct ViewSelection(pub Selection<Selection<Selection<DpuId>>>);
-
-impl ViewSelection {
-    pub fn all() -> Self {
-        ViewSelection(Selection::All)
+impl <T> Default for FastSelection<T> {
+    fn default() -> Self {
+        FastSelection::Normal(Default::default())
     }
 }
 
-#[derive(Debug)]
-pub struct DpuId(pub u32);
+#[derive(Default)]
+pub struct View(pub FastSelection<Selection<Selection<DpuId>>>);
 
-pub trait View {
-    fn selection(&self) -> &ViewSelection;
-    fn driver(&self) -> &Driver;
-
-    fn nr_of_dpus(&self) -> usize {
-        self.driver().nr_of_dpus()
-    }
-
-    fn load(&self, program: &Program) -> Result<(), ClusterError> {
-        self.driver().load(self.selection(), program)
-    }
-
-    fn populate(&self, images: &[MemoryImage]) -> Result<(), ClusterError> {
-        self.driver().populate(self.selection(), images)
-    }
-
-    fn run(&self) -> Result<(), ClusterError> {
-        self.driver().run(self.selection())
-    }
-
-    fn dump(&self) -> Result<MemoryImageCollection, ClusterError> {
-        self.driver().dump(self.selection())
+impl View {
+    pub fn all() -> View {
+        View(FastSelection::Normal(Selection::All))
     }
 }
