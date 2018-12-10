@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "9c4ed01d_c0790209",
+        "filename": "dpu-cluster-core/src/error.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 6,
+      "author": {
+        "id": 1015528
+      },
+      "writtenOn": "2018-12-10T07:36:52Z",
+      "side": 1,
+      "message": "I don\u0027t get the point in having LowLevelError AND DpuError... Can we have other types of low level errors?",
+      "revId": "168e7ee19826a365afe6dc79557d633839bcb58e",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735",
+      "unresolved": true
+    }
+  ]
+}
