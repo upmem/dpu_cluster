@@ -30,4 +30,8 @@ impl View {
     pub fn all() -> View {
         View(FastSelection::Normal(Selection::All))
     }
+
+    pub fn one(dpu: DpuId) -> View {
+        View(FastSelection::Fast(dpu))
+    }
 }

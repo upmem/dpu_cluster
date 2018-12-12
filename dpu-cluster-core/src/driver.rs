@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -14,19 +13,19 @@ use dpu_sys::DpuRank;
 use dpu_sys::DpuRankDescription;
 use dpu_sys::DpuRankTransferMatrix;
 use error::ClusterError;
-use memory::Location;
-use memory::MemoryImage;
 use program::Program;
 use view::FastSelection;
 use view::Selection;
 use view::View;
 use dpu_sys::DpuError;
 use dpu_sys::DpuDebugContext;
+use memory::MemoryTransfer;
+use memory::MemoryTransferRankEntry;
 
 #[derive(Debug)]
 pub struct Driver {
     rank_handler: Arc<RankHandler>,
-    rank_description: DpuRankDescription,
+    pub rank_description: DpuRankDescription,
     watcher: WatcherControl
 }
 
@@ -173,6 +172,8 @@ impl Driver {
     pub fn run(&self, view: &View) -> Result<RunStatus, ClusterError> {
         self.boot(view)?;
 
+        // todo: theoretically, it is possible for the Watcher not to update the status before the first calls to fetch_status
+
         loop {
             match self.fetch_status(view)? {
                 RunStatus::Running => (),
@@ -181,10 +182,9 @@ impl Driver {
         }
     }
 
-    pub fn copy_to_memory(&self, data: HashMap<Location, &mut MemoryImage>) -> Result<(), ClusterError> {
-        let transfers = self.group_memory_transfers_per_rank(data);
-
-        for (rank, rank_transfers) in transfers {
+    pub fn copy_to_memory(&self, data: &mut MemoryTransfer) -> Result<(), ClusterError> {
+        for (rank_id, rank_transfers) in data.0.iter_mut() {
+            let rank= self.rank_handler.get_rank(*rank_id);
             let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
             rank.copy_to_mrams(&matrix);
         }
@@ -192,10 +192,9 @@ impl Driver {
         Ok(())
     }
 
-    pub fn copy_from_memory(&self, data: HashMap<Location, &mut MemoryImage>) -> Result<(), ClusterError> {
-        let transfers = self.group_memory_transfers_per_rank(data);
-
-        for (rank, rank_transfers) in transfers {
+    pub fn copy_from_memory(&self, data: &mut MemoryTransfer) -> Result<(), ClusterError> {
+        for (rank_id, rank_transfers) in data.0.iter_mut() {
+            let rank= self.rank_handler.get_rank(*rank_id);
             let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
             rank.copy_from_mrams(&matrix);
         }
@@ -430,7 +429,7 @@ impl Driver {
         }
 
         let slice_run = state.run_bitfields[rank_id][slice_id];
-        let slice_fault = state.run_bitfields[rank_id][slice_id];
+        let slice_fault = state.fault_bitfields[rank_id][slice_id];
 
         if (slice_run & mask) == 0 {
             Ok(RunStatus::Idle)
@@ -441,31 +440,15 @@ impl Driver {
         }
     }
 
-    fn group_memory_transfers_per_rank<'a>(&self, data: HashMap<Location, &'a mut MemoryImage>) -> HashMap<&DpuRank, HashMap<Location, &'a mut MemoryImage>> {
-        let mut transfers_per_rank = HashMap::default();
-
-        for (location, image) in data {
-            let (rank, _, _) = self.destructure(&location.dpu);
-
-            let transfers = match transfers_per_rank.entry(rank) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => entry.insert(HashMap::default()),
-            };
-
-            transfers.insert(location, image);
-        }
-
-        transfers_per_rank
-    }
-
-    fn create_transfer_matrix_for<'a>(&self, rank: &'a DpuRank, mut data: HashMap<Location, &mut MemoryImage>) -> Result<DpuRankTransferMatrix<'a>, ClusterError> {
+    fn create_transfer_matrix_for<'a>(&self, rank: &'a DpuRank, data: &mut MemoryTransferRankEntry) -> Result<DpuRankTransferMatrix<'a>, ClusterError> {
         let matrix = DpuRankTransferMatrix::allocate_for(rank)?;
 
-        for (location, image) in data.iter_mut() {
-            let (_, slice, member) = location.dpu.members();
-            let mut content = image.content()?;
+        for (dpu, image) in data.0.iter_mut() {
+            let (_, slice, member) = dpu.members();
+            let offset = image.offset;
+            let length = image.reference.len() as u32;
 
-            matrix.add_dpu(slice, member, content.as_mut_ptr(), content.len() as u32, location.offset, PRIMARY_MRAM);
+            matrix.add_dpu(slice, member, image.ptr(), length, offset, PRIMARY_MRAM);
         }
 
         Ok(matrix)

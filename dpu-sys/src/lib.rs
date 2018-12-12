@@ -207,8 +207,11 @@ extern {
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub enum DpuType {
-    FunctionalSimulator,
-    Hardware
+    FunctionalSimulator = 0,
+    CycleAccurateSimulator = 1,
+    Modelsim = 2,
+    Hardware = 3,
+    BackupSpi = 4
 }
 
 impl Default for DpuType {
@@ -247,6 +250,11 @@ impl DpuTarget {
         }
     }
 
+    pub fn nr_of_dpus_per_control_interface(mut self, nr: u8) -> Self {
+        self.profile.properties.insert("nrDpusPerCI".to_string(), nr.to_string());
+        self
+    }
+
     pub fn to_cni_args(&self) -> (DpuType, String) {
         let profile_str = self.profile.properties.iter()
             .map(|(key, value)| format!("{}={}", key, value))
@@ -265,10 +273,10 @@ pub struct DpuRankTransferMatrix<'a> {
     rank: &'a DpuRank
 }
 
-fn wrap_cni_result<R>(result: R, status: CniStatus) -> Result<R, DpuError> {
+fn wrap_cni_status(status: CniStatus) -> Result<(), DpuError> {
     match status {
-        CniStatus::Success => Ok(result),
-        _ => Err(DpuError(status))
+        CniStatus::Success => Ok(()),
+        err => Err(DpuError(err))
     }
 }
 
@@ -279,6 +287,7 @@ impl DpuRank {
         let nr_of_dpus = match dpu_type {
             DpuType::FunctionalSimulator => 8,
             DpuType::Hardware => 0,
+            others => 0
         };
 
         Ok(nr_of_dpus)
@@ -295,7 +304,7 @@ impl DpuRank {
             dpu_cni_get_profile_description(dpu_type, c_profile.as_ptr(), &mut description)
         };
 
-        wrap_cni_result(description, status)
+        wrap_cni_status(status).map(|_| description)
     }
 
     pub fn allocate_for(dpu_type: DpuType, profile: &str) -> Result<DpuRank, DpuError> {
@@ -305,7 +314,7 @@ impl DpuRank {
 
         let status = unsafe { dpu_cni_get_rank_of_type(dpu_type, c_profile.as_ptr(), &mut link) };
 
-        wrap_cni_result(DpuRank(link), status)
+        wrap_cni_status(status).map(|_| DpuRank(link))
     }
 
     pub fn get_description(&self) -> Result<DpuRankDescription, DpuError> {
@@ -316,169 +325,169 @@ impl DpuRank {
             dpu_cni_get_target_description(self.0, &mut description)
         };
 
-        wrap_cni_result(description, status)
+        wrap_cni_status(status).map(|_| description)
     }
 
     pub fn reset_all(&self) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_reset_for_all(self.0) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn reset_dpu(&self, slice_id: u8, member_id: u8) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_reset_for_dpu(self.0, slice_id, member_id) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn launch_thread_on_all(&self, thread: u8, should_resume: bool, was_running: *mut u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_launch_thread_for_all(self.0, thread, should_resume, was_running) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn launch_thread_on_dpu(&self, slice_id: u8, member_id: u8, thread: u8, should_resume: bool, was_running: *mut bool) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_launch_thread_for_dpu(self.0, slice_id, member_id, thread, should_resume, was_running) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn poll_all(&self, is_running: *mut u32, is_in_fault: *mut u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_poll_for_all(self.0, is_running, is_in_fault) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn poll_dpu(&self, slice_id: u8, member_id: u8, is_running: *mut bool, is_in_fault: *mut bool) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_poll_for_dpu(self.0, slice_id, member_id, is_running, is_in_fault) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn fetch_thread_status_on_all(&self, thread: u8, is_running: *mut u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_get_thread_status_for_all(self.0, thread, is_running) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn fetch_thread_status_on_dpu(&self, slice_id: u8, member_id: u8, thread: u8, is_running: *mut bool) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_get_thread_status_for_dpu(self.0, slice_id, member_id, thread, is_running) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn get_and_update_notification_on_all(&self, notify: u8, update: bool, was_set: *mut u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_get_and_update_notify_status_for_all(self.0, notify, update, was_set) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn get_and_update_notification_on_dpu(&self, slice_id: u8, member_id: u8, notify: u8, update: bool, was_set: *mut bool) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_get_and_update_notify_status_for_dpu(self.0, slice_id, member_id, notify, update, was_set) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn fault_all(&self) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_trigger_fault_on_all(self.0) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn fault_dpu(&self, slice_id: u8, member_id: u8) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_trigger_fault_on_dpu(self.0, slice_id, member_id) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_to_irams(&self, buffer: *const u64, length: u16, offset: u16) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_iram_for_all(self.0, offset, buffer, length) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_to_iram(&self, slice_id: u8, member_id: u8, buffer: *const u64, length: u16, offset: u16) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_iram_for_dpu(self.0, slice_id, member_id, offset, buffer, length) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_from_iram(&self, slice_id: u8, member_id: u8, buffer: *mut u64, length: u16, offset: u16) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_from_iram_for_dpu(self.0, slice_id, member_id, buffer, offset, length) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_to_wrams(&self, buffer: *const u32, length: u32, offset: u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_wram_for_all(self.0, offset, buffer, length) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_to_wram(&self, slice_id: u8, member_id: u8, buffer: *const u32, length: u32, offset: u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_wram_for_dpu(self.0, slice_id, member_id, offset, buffer, length) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_from_wram(&self, slice_id: u8, member_id: u8, buffer: *mut u32, length: u32, offset: u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_from_wram_for_dpu(self.0, slice_id, member_id, buffer, offset, length) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_to_mrams(&self, matrix: &DpuRankTransferMatrix) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_mram_number_for_dpus(self.0, matrix.matrix) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_to_mram(&self, slice_id: u8, member_id: u8, buffer: *const u8, length: u32, offset: u32, mram_number: u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_mram_number_for_dpu(self.0, slice_id, member_id, offset, buffer, length, mram_number) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_from_mrams(&self, matrix: &DpuRankTransferMatrix) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_from_mram_number_for_dpus(self.0, matrix.matrix) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn copy_from_mram(&self, slice_id: u8, member_id: u8, buffer: *mut u8, length: u32, offset: u32, mram_number: u32) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_from_mram_number_for_dpu(self.0, slice_id, member_id, buffer, offset, length, mram_number) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn extract_pcs_from_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_extract_pcs_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn extract_context_from_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_extract_context_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn initialize_fault_process_for_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_initialize_fault_process_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn execute_thread_step_on_dpu(&self, slice_id: u8, member_id: u8, thread: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_execute_thread_step_in_fault_for_dpu(self.0, slice_id, member_id, thread, &mut context.raw as *mut RawDpuDebugContext) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn finalize_fault_process_for_dpu(&self, slice_id: u8, member_id: u8, context: &mut DpuDebugContext) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_finalize_fault_process_for_dpu(self.0, slice_id, member_id, &mut context.raw as *mut RawDpuDebugContext) };
 
-        wrap_cni_result((), status)
+        wrap_cni_status(status)
     }
 
     pub fn free(self) -> () {
@@ -502,7 +511,7 @@ impl <'a> DpuRankTransferMatrix<'a> {
 
         let status = unsafe { dpu_cni_transfer_matrix_allocate(link, &mut matrix) };
 
-        wrap_cni_result(DpuRankTransferMatrix { matrix, rank }, status)
+        wrap_cni_status(status).map(|_| DpuRankTransferMatrix { matrix, rank })
     }
 
     pub fn add_dpu(&self, slice_id: u8, member_id: u8, buffer: *mut u8, length: u32, offset: u32, mram_number: u32) -> () {
