@@ -1,9 +1,11 @@
 use dpu_sys::DpuError;
+use dpu::DpuId;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ClusterError {
     NotEnoughResources {expected: u32, found: u32 },
-    LowLevelError(DpuError)
+    LowLevelError(DpuError),
+    DpuIsInFault(DpuId)
 }
 
 impl From<DpuError> for ClusterError {

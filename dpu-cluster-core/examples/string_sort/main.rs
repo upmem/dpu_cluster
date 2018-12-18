@@ -79,13 +79,7 @@ fn do_sort(driver: &Driver, input_file: &str, output_file: &str) -> Result<(), A
 }
 
 fn fetch_dpu_program() -> Result<Program, AppError> {
-    let iram = std::fs::read(DPU_PROGRAM_IRAM)?;
-    let wram = std::fs::read(DPU_PROGRAM_WRAM)?;
-
-    let iram = iram.chunks(8).map(|chunk| chunk.iter().fold((0 as u64, 0), |(acc, i), b| (acc | ((*b as u64) << i), i + 8))).map(|(x, _)| x).collect();
-    let wram = wram.chunks(4).map(|chunk| chunk.iter().fold((0 as u32, 0), |(acc, i), b| (acc | ((*b as u32) << i), i + 8))).map(|(x, _)| x).collect();
-
-    Ok(Program::new(iram, wram, None))
+    Ok(Program::new_raw(std::fs::read(DPU_PROGRAM_IRAM)?, std::fs::read(DPU_PROGRAM_WRAM)?))
 }
 
 fn extract_inputs(filename: &str, mram_size: u32) -> Result<(Vec<u8>, Vec<u32>, HashMap<u32, String>), AppError> {
@@ -118,21 +112,15 @@ fn extract_inputs(filename: &str, mram_size: u32) -> Result<(Vec<u8>, Vec<u32>, 
 }
 
 fn prepare_input_memory_transfers<'a>(dpu: DpuId, strings: &'a mut [u8], addresses: &'a mut [u32], nb_of_words: &'a mut [u32]) -> Vec<MemoryTransfer<'a>> {
-    let mut strings_tranfer = MemoryTransfer::default();
-    let mut addresses_tranfer = MemoryTransfer::default();
-    let mut nb_of_words_tranfer = MemoryTransfer::default();
-
-    strings_tranfer.add(dpu, MemoryTransferEntry::from_u8_slice(STRINGS_OFFSET, strings));
-    addresses_tranfer.add(dpu, MemoryTransferEntry::from_u32_slice(ADDRESSES_OFFSET, addresses));
-    nb_of_words_tranfer.add(dpu, MemoryTransferEntry::from_u32_slice(NB_OF_WORDS_OFFSET, nb_of_words));
+    let strings_tranfer = MemoryTransfer::default().add(dpu, STRINGS_OFFSET, strings);
+    let addresses_tranfer = MemoryTransfer::default().add(dpu, ADDRESSES_OFFSET, addresses);
+    let nb_of_words_tranfer = MemoryTransfer::default().add(dpu, NB_OF_WORDS_OFFSET, nb_of_words);
 
     vec![strings_tranfer, addresses_tranfer, nb_of_words_tranfer]
 }
 
 fn prepare_output_memory_transfer(dpu: DpuId, output: &mut [u32]) -> MemoryTransfer {
-    let mut output_transfer = MemoryTransfer::default();
-    output_transfer.add(dpu, MemoryTransferEntry::from_u32_slice(ADDRESSES_OFFSET, output));
-    output_transfer
+    MemoryTransfer::default().add(dpu, ADDRESSES_OFFSET, output)
 }
 
 fn process_outputs(output: Vec<u32>, filename: &str, string_map: HashMap<u32, String>) -> Result<(), AppError> {

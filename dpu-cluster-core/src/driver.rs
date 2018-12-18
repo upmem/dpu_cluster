@@ -101,7 +101,7 @@ impl <'a> FromRankId<'a> for &'a DpuRank {
     }
 }
 
-trait Mergeable {
+pub trait Mergeable {
     fn merge_with(&self, other: &Self) -> Self;
 }
 
@@ -492,7 +492,7 @@ impl Watcher {
                     match self.receiver.recv() {
                         Ok(ClusterMessage::ToggleActivity) => (),
                         Ok(ClusterMessage::Shutdown) => return,
-                        Err(err) => return,
+                        Err(_) => return,
                     },
                 Ok(ClusterMessage::Shutdown) => return,
                 Err(TryRecvError::Empty) => (),

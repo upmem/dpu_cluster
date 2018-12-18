@@ -21,4 +21,11 @@ impl Program {
 
         Program { iram_sections, wram_sections, binary_file }
     }
+
+    pub fn new_raw(iram: Vec<u8>, wram: Vec<u8>) -> Program {
+        let iram = iram.chunks(8).map(|chunk| chunk.iter().fold((0 as u64, 0), |(acc, i), b| (acc | ((*b as u64) << i), i + 8))).map(|(x, _)| x).collect();
+        let wram = wram.chunks(4).map(|chunk| chunk.iter().fold((0 as u32, 0), |(acc, i), b| (acc | ((*b as u32) << i), i + 8))).map(|(x, _)| x).collect();
+
+        Program::new(iram, wram, None)
+    }
 }
