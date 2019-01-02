@@ -1,5 +1,3 @@
-use std::thread;
-use pipeline::ThreadHandle;
 use dpu::DpuId;
 use pipeline::transfer::OutputMemoryTransfer;
 
@@ -8,8 +6,8 @@ pub mod loader;
 pub mod tracker;
 pub mod fetcher;
 
-struct DpuGroup {
-    dpus: Vec<DpuId>
+pub struct DpuGroup {
+    pub dpus: Vec<DpuId>
 }
 
 type GroupJob = (DpuGroup, Vec<OutputMemoryTransfer>);

@@ -1,6 +1,6 @@
 use dpu_sys::DpuTarget;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ClusterConfiguration {
     pub target: DpuTarget,
     pub nr_of_dpus_expected: Option<u32>

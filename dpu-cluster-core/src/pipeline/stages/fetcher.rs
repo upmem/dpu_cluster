@@ -1,9 +1,7 @@
-use driver::Driver;
 use pipeline::OutputResult;
 use pipeline::stages::DpuGroup;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::Receiver;
-use pipeline::transfer::OutputMemoryTransfer;
 use std::sync::Arc;
 use std::sync::Mutex;
 use memory::MemoryTransfer;
@@ -22,6 +20,14 @@ pub struct OutputFetcher {
 }
 
 impl OutputFetcher {
+    pub fn new(cluster: Arc<Cluster>,
+               finish_receiver: Receiver<GroupJob>,
+               output_sender: Sender<OutputResult>,
+               group_sender: Sender<DpuGroup>,
+               shutdown: Arc<Mutex<bool>>) -> Self {
+        OutputFetcher { cluster, finish_receiver, output_sender, group_sender, shutdown }
+    }
+
     pub fn launch(self) -> ThreadHandle {
         Some(thread::spawn(|| self.run()))
     }
@@ -49,13 +55,11 @@ impl OutputFetcher {
                     }
                 },
                 Err(err) => {
-                    for _ in vectors {
-                        self.output_sender.send(Err(PipelineError::InfrastructureError(err.clone()))).unwrap()
-                    }
+                    self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
                 },
             };
 
-            self.group_sender.send(group).unwrap();
+            self.group_sender.send(group);
         }
     }
 }

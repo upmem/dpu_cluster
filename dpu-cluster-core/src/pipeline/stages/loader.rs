@@ -1,6 +1,5 @@
 use pipeline::ThreadHandle;
 use std::thread;
-use driver::Driver;
 use pipeline::transfer::MemoryTransfers;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
@@ -14,6 +13,8 @@ use pipeline::stages::DpuGroup;
 use pipeline::OutputResult;
 use pipeline::stages::GroupJob;
 use cluster::Cluster;
+use memory::MemoryTransfer;
+use error::ClusterError;
 
 pub struct InputLoader<I> {
     cluster: Arc<Cluster>,
@@ -27,8 +28,19 @@ pub struct InputLoader<I> {
 }
 
 impl <I> InputLoader<I>
-    where I: Send
+    where I: Send + 'static
 {
+    pub fn new(cluster: Arc<Cluster>,
+               get_transfers: Box<Fn(I) -> MemoryTransfers + Send>,
+               groups: Vec<DpuGroup>,
+               input_receiver: Receiver<I>,
+               group_receiver: Receiver<DpuGroup>,
+               job_sender: Sender<GroupJob>,
+               output_sender: Sender<OutputResult>,
+               shutdown: Arc<Mutex<bool>>) -> Self {
+        InputLoader { cluster, get_transfers, groups, input_receiver, group_receiver, job_sender, output_sender, shutdown }
+    }
+
     pub fn launch(self) -> ThreadHandle {
         Some(thread::spawn(|| self.run()))
     }
@@ -62,20 +74,49 @@ impl <I> InputLoader<I>
     }
 
     fn load_input_chunk(&self, group: DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>, outs: Vec<OutputMemoryTransfer>) {
+        match chunk.iter().max_by_key(|t| t.len()).map(|t| t.len()) {
+            None => (),
+            Some(max_len) =>
+                match self.do_memory_transfers(&group, chunk, max_len) {
+                    Err(err) => {
+                        self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap()
+                    },
+                    Ok(_) => {
+                        for dpu in &group.dpus {
+                            match self.cluster.driver().boot(&View::one(dpu.clone())) {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap()
+                                }
+                            }
+                        }
 
+                        self.job_sender.send((group, outs)).unwrap();
+                    },
+                },
+        }
+    }
 
+    fn do_memory_transfers(&self, group: &DpuGroup, mut chunk: Vec<Vec<InputMemoryTransfer>>, max_len: usize) -> Result<(), ClusterError> {
+        let mut memory_transfers = Vec::with_capacity(max_len);
 
-        for dpu in &group.dpus {
-            match self.cluster.driver().boot(&View::one(dpu.clone())) {
-                Ok(_) => (),
-                Err(err) => {
-                    self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap()
-                }
+        for _ in 0..max_len {
+            memory_transfers.push(MemoryTransfer::default());
+        }
+
+        for (idx, transfers) in chunk.iter_mut().enumerate() {
+            for (i, transfer) in transfers.iter_mut().enumerate() {
+                let memory_transfer = memory_transfers.get_mut(i).unwrap();
+
+                memory_transfer.add_in_place(group.dpus.get(idx).unwrap().clone(), transfer.offset, transfer.content.as_mut_slice());
             }
         }
 
-        self.job_sender.send((group, outs)).unwrap();
-        unimplemented!()
+        for memory_transfer in memory_transfers.iter_mut() {
+            self.cluster.driver().copy_to_memory(memory_transfer)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -83,6 +124,7 @@ fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGro
     match groups.pop() {
         Some(grp) => grp,
         None => {
+            // todo: fix the issue where no group may be sent because all have failed
             let grp = group_receiver.recv().unwrap();
 
             loop {

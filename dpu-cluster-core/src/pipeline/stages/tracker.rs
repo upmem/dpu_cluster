@@ -1,7 +1,5 @@
-use driver::Driver;
 use std::sync::mpsc::Receiver;
 use pipeline::stages::DpuGroup;
-use pipeline::transfer::OutputMemoryTransfer;
 use std::sync::mpsc::Sender;
 use pipeline::OutputResult;
 use std::sync::Arc;
@@ -26,6 +24,14 @@ pub struct ExecutionTracker {
 }
 
 impl ExecutionTracker {
+    pub fn new(cluster: Arc<Cluster>,
+               job_receiver: Receiver<GroupJob>,
+               finish_sender: Sender<GroupJob>,
+               output_sender: Sender<OutputResult>,
+               shutdown: Arc<Mutex<bool>>) -> Self {
+        ExecutionTracker { cluster, job_receiver, finish_sender, output_sender, shutdown }
+    }
+
     pub fn launch(self) -> ThreadHandle {
         Some(thread::spawn(|| self.run()))
     }
@@ -38,7 +44,7 @@ impl ExecutionTracker {
                 match self.job_receiver.try_recv() {
                     Ok(job) => jobs.push(job),
                     Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => return,
+                    Err(TryRecvError::Disconnected) => if jobs.len() == 0 { return } else { break },
                 }
             }
 
@@ -49,19 +55,12 @@ impl ExecutionTracker {
                     Ok(RunStatus::Idle) => self.finish_sender.send(job).unwrap(),
                     Ok(RunStatus::Running) => new_jobs.push(job),
                     Ok(RunStatus::Fault(faults)) => {
-                        if faults.len() != job.0.dpus.len() {
-//                        new_jobs.push(); todo
-                            unimplemented!()
-                        }
-
                         for faulting_dpu in faults {
                             self.output_sender.send(Err(PipelineError::ExecutionError(faulting_dpu))).unwrap();
                         }
                     },
                     Err(err) => {
-                        for _ in job.0.dpus {
-                            self.output_sender.send(Err(PipelineError::InfrastructureError(err.clone())).unwrap());
-                        }
+                        self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
                     }
                 }
             }

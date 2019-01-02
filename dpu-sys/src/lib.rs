@@ -126,6 +126,9 @@ struct RawDpuDebugContext {
     mem_fault_thread_index: u8
 }
 
+unsafe impl Send for DpuRankDescription {}
+unsafe impl Sync for DpuRankDescription {}
+
 impl DpuDebugContext {
     pub fn new(nr_of_threads: u8, nr_of_registers: u8, nr_of_atomic_bits: u32) -> Self {
         let total_nr_of_registers = (nr_of_threads as usize) * (nr_of_registers as usize);

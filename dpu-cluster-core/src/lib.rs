@@ -1,4 +1,5 @@
 extern crate dpu_sys;
+extern crate core;
 
 pub mod config;
 pub mod cluster;

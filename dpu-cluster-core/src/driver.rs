@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
@@ -25,9 +24,12 @@ use memory::MemoryTransferRankEntry;
 #[derive(Debug)]
 pub struct Driver {
     rank_handler: Arc<RankHandler>,
+    pub nr_of_ranks: u8,
     pub rank_description: DpuRankDescription,
     watcher: WatcherControl
 }
+
+unsafe impl Sync for Driver {}
 
 #[derive(Debug)]
 struct WatcherControl {
@@ -133,13 +135,14 @@ impl Mergeable for RunStatus {
 
 impl Driver {
     pub fn new(ranks: Vec<DpuRank>, rank_description: DpuRankDescription) -> Self {
+        let nr_of_ranks = ranks.len() as u8;
         let run_bitfields = Driver::create_cluster_bitfield(&ranks, &rank_description);
         let fault_bitfields = run_bitfields.clone();
         let state = Mutex::new(ClusterState { run_bitfields, fault_bitfields, internal_error: Option::default() });
         let rank_handler = Arc::new(RankHandler { ranks, state });
         let watcher = Watcher::launch(Arc::clone(&rank_handler));
 
-        Driver { rank_handler, rank_description, watcher }
+        Driver { rank_handler, nr_of_ranks, rank_description, watcher }
     }
 
     pub fn nr_of_dpus(&self) -> usize {
@@ -186,7 +189,7 @@ impl Driver {
         for (rank_id, rank_transfers) in data.0.iter_mut() {
             let rank= self.rank_handler.get_rank(*rank_id);
             let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
-            rank.copy_to_mrams(&matrix);
+            rank.copy_to_mrams(&matrix)?;
         }
 
         Ok(())
@@ -196,7 +199,7 @@ impl Driver {
         for (rank_id, rank_transfers) in data.0.iter_mut() {
             let rank= self.rank_handler.get_rank(*rank_id);
             let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
-            rank.copy_from_mrams(&matrix);
+            rank.copy_from_mrams(&matrix)?;
         }
 
         Ok(())

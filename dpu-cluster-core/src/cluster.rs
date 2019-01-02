@@ -9,7 +9,6 @@ use dpu::DpuId;
 
 #[derive(Debug)]
 pub struct Cluster {
-    config: ClusterConfiguration,
     driver: Driver,
     workers: Mapping
 }
@@ -42,11 +41,19 @@ impl Cluster {
 
         let workers = Mapping::new(dpu_ids);
 
-        Ok(Cluster { config, driver, workers })
+        Ok(Cluster { driver, workers })
     }
 
     pub fn driver(&self) -> &Driver {
         &self.driver
+    }
+
+    pub fn topology(&self) -> (u8, u8, u8) {
+        (
+            self.driver.nr_of_ranks,
+            self.driver.rank_description.topology.nr_of_control_interfaces,
+            self.driver.rank_description.topology.nr_of_dpus_per_control_interface
+        )
     }
 }
 

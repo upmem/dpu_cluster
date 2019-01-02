@@ -15,7 +15,6 @@ use std::io::BufReader;
 use std::io::BufRead;
 use dpu_cluster_core::dpu::DpuId;
 use dpu_cluster_core::memory::MemoryTransfer;
-use dpu_cluster_core::memory::MemoryTransferEntry;
 
 const NB_WORD_MAX: u32 = 7450;
 
@@ -127,6 +126,7 @@ fn process_outputs(output: Vec<u32>, filename: &str, string_map: HashMap<u32, St
     let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(filename)?;
 
     for entry in output {
+        println!("{}", entry);
         let string = string_map.get(&entry).ok_or_else(|| AppError::InvalidStringEntry(entry))?;
         file.write(string.as_bytes())?;
         file.write(b"\n")?;

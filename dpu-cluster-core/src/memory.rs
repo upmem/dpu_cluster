@@ -1,5 +1,4 @@
 use dpu::DpuId;
-use error::ClusterError;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
