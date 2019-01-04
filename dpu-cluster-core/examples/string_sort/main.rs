@@ -126,7 +126,6 @@ fn process_outputs(output: Vec<u32>, filename: &str, string_map: HashMap<u32, St
     let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(filename)?;
 
     for entry in output {
-        println!("{}", entry);
         let string = string_map.get(&entry).ok_or_else(|| AppError::InvalidStringEntry(entry))?;
         file.write(string.as_bytes())?;
         file.write(b"\n")?;

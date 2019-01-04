@@ -20,32 +20,20 @@ use dpu_sys::DpuError;
 use dpu_sys::DpuDebugContext;
 use memory::MemoryTransfer;
 use memory::MemoryTransferRankEntry;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct Driver {
-    rank_handler: Arc<RankHandler>,
+    rank_handler: RankHandler,
     pub nr_of_ranks: u8,
-    pub rank_description: DpuRankDescription,
-    watcher: WatcherControl
+    pub rank_description: DpuRankDescription
 }
 
 unsafe impl Sync for Driver {}
 
 #[derive(Debug)]
-struct WatcherControl {
-    sender: Sender<ClusterMessage>,
-    handle: Option<JoinHandle<()>>
-}
-
-#[derive(Debug)]
 struct RankHandler {
-    ranks: Vec<DpuRank>,
-    state: Mutex<ClusterState>
-}
-
-struct Watcher {
-    receiver: Receiver<ClusterMessage>,
-    rank_handler: Arc<RankHandler>,
+    ranks: Vec<DpuRank>
 }
 
 #[derive(Clone)]
@@ -72,18 +60,6 @@ impl Default for RunStatus {
     }
 }
 
-#[derive(Debug)]
-pub struct ClusterState {
-    run_bitfields: Vec<Vec<u32>>,
-    fault_bitfields: Vec<Vec<u32>>,
-    internal_error: Option<DpuError>
-}
-
-enum ClusterMessage {
-    ToggleActivity,
-    Shutdown
-}
-
 const BOOTSTRAP_THREAD: u8 = 0;
 const PRIMARY_MRAM: u32 = 0;
 
@@ -92,7 +68,7 @@ trait FromRankId<'a> {
 }
 
 impl <'a> FromRankId<'a> for u8 {
-    fn from_rank_id(rank_id: u8, handler: &'a RankHandler) -> Self {
+    fn from_rank_id(rank_id: u8, _: &'a RankHandler) -> Self {
         rank_id
     }
 }
@@ -108,7 +84,7 @@ pub trait Mergeable {
 }
 
 impl Mergeable for () {
-    fn merge_with(&self, other: &Self) -> Self {
+    fn merge_with(&self, _: &Self) -> Self {
         ()
     }
 }
@@ -136,13 +112,9 @@ impl Mergeable for RunStatus {
 impl Driver {
     pub fn new(ranks: Vec<DpuRank>, rank_description: DpuRankDescription) -> Self {
         let nr_of_ranks = ranks.len() as u8;
-        let run_bitfields = Driver::create_cluster_bitfield(&ranks, &rank_description);
-        let fault_bitfields = run_bitfields.clone();
-        let state = Mutex::new(ClusterState { run_bitfields, fault_bitfields, internal_error: Option::default() });
-        let rank_handler = Arc::new(RankHandler { ranks, state });
-        let watcher = Watcher::launch(Arc::clone(&rank_handler));
+        let rank_handler = RankHandler { ranks };
 
-        Driver { rank_handler, nr_of_ranks, rank_description, watcher }
+        Driver { rank_handler, nr_of_ranks, rank_description }
     }
 
     pub fn nr_of_dpus(&self) -> usize {
@@ -174,8 +146,6 @@ impl Driver {
 
     pub fn run(&self, view: &View) -> Result<RunStatus, ClusterError> {
         self.boot(view)?;
-
-        // todo: theoretically, it is possible for the Watcher not to update the status before the first calls to fetch_status
 
         loop {
             match self.fetch_status(view)? {
@@ -213,17 +183,6 @@ impl Driver {
                                  self.rank_description.info.nr_of_atomic_bits);
         rank.initialize_fault_process_for_dpu(slice_id, member, &mut context)?;
         Ok(FaultInformation { dpu: dpu.clone(), context })
-    }
-
-    fn create_cluster_bitfield(ranks: &[DpuRank], rank_description: &DpuRankDescription) -> Vec<Vec<u32>> {
-        let nr_of_ranks = ranks.len();
-        let nr_of_control_interfaces_per_rank = rank_description.topology.nr_of_control_interfaces as usize;
-        let mut bitfield = Vec::with_capacity(nr_of_control_interfaces_per_rank);
-        bitfield.resize(nr_of_control_interfaces_per_rank, 0);
-
-        let mut run_bitfields = Vec::with_capacity(nr_of_ranks);
-        run_bitfields.resize(nr_of_ranks, bitfield);
-        run_bitfields
     }
 
     fn dispatch<'a, T, FnRankArg, FnDpu, FnRank, FnAll>(&'a self, view: &View, for_dpu: FnDpu, for_rank: FnRank, for_all: FnAll) -> Result<T, ClusterError>
@@ -345,60 +304,37 @@ impl Driver {
     }
 
     fn fetch_all_status(&self) -> Result<RunStatus, ClusterError> {
-        let mut running = false;
-        let mut fault = false;
-        let mut faults = Vec::default();
-        // unwrap: no owner of the mutex should panic
-        let state = self.rank_handler.state.lock().unwrap();
-        let nr_of_ranks = state.run_bitfields.len();
-        let nr_of_control_interfaces_per_rank = self.rank_description.topology.nr_of_control_interfaces as usize;
-        let nr_of_dpus_per_control_interface = self.rank_description.topology.nr_of_dpus_per_control_interface;
-
-        if let Some(ref err) = state.internal_error {
-            return Err(err.clone().into())
-        }
+        let nr_of_ranks = self.nr_of_ranks;
+        let mut status = RunStatus::default();
 
         for rank_id in 0..nr_of_ranks {
-            for slice_id in 0..nr_of_control_interfaces_per_rank {
-                if state.run_bitfields[rank_id][slice_id] != 0 {
-                    running = true;
-                }
-                let fault_bitfield = state.fault_bitfields[rank_id as usize][slice_id];
-                if fault_bitfield != 0 {
-                    fault = true;
-
-                    for member in 0..nr_of_dpus_per_control_interface {
-                        if (fault_bitfield & (1 << (member as u32))) != 0 {
-                            faults.push(DpuId::new(rank_id as u8, slice_id as u8, member));
-                        }
-                    }
-                }
-            }
+            let rank_status = self.fetch_rank_status(rank_id)?;
+            status = status.merge_with(&rank_status);
         }
 
-        if !running {
-            Ok(RunStatus::Idle)
-        } else if !fault {
-            Ok(RunStatus::Running)
-        } else {
-            Ok(RunStatus::Fault(faults))
-        }
+        Ok(status)
     }
 
     fn fetch_rank_status(&self, rank_id: u8) -> Result<RunStatus, ClusterError> {
         let mut running = false;
         let mut fault = false;
         let mut faults = Vec::default();
-        let state = self.rank_handler.state.lock().unwrap();
         let nr_of_control_interfaces_per_rank = self.rank_description.topology.nr_of_control_interfaces as usize;
         let nr_of_dpus_per_control_interface = self.rank_description.topology.nr_of_dpus_per_control_interface;
 
+        let rank = self.rank_handler.get_rank(rank_id);
+        let mut run_bitfields = vec![0; nr_of_control_interfaces_per_rank];
+        let mut fault_bitfields = vec![0; nr_of_control_interfaces_per_rank];
+
+        rank.poll_all(run_bitfields.as_mut_ptr(), fault_bitfields.as_mut_ptr())?;
+
         for slice_id in 0..nr_of_control_interfaces_per_rank {
-            if state.run_bitfields[rank_id as usize][slice_id] != 0 {
-                running = true;
+            if run_bitfields[slice_id] == 0 {
+                continue;
             }
 
-            let fault_bitfield = state.fault_bitfields[rank_id as usize][slice_id];
+            running = true;
+            let fault_bitfield = fault_bitfields[slice_id];
             if fault_bitfield != 0 {
                 fault = true;
 
@@ -420,23 +356,16 @@ impl Driver {
     }
 
     fn fetch_dpu_status(&self, dpu: &DpuId) -> Result<RunStatus, ClusterError> {
-        let (rank, slice, member) = dpu.members();
-        let mask = 1 << (member as u32);
-        let rank_id = rank as usize;
-        let slice_id = slice as usize;
-        // unwrap: no owner of the mutex should panic
-        let state = self.rank_handler.state.lock().unwrap();
+        let (rank, slice, member) = self.destructure(dpu);
 
-        if let Some(ref err) = state.internal_error {
-            return Err(err.clone().into())
-        }
+        let mut running = false;
+        let mut fault = false;
 
-        let slice_run = state.run_bitfields[rank_id][slice_id];
-        let slice_fault = state.fault_bitfields[rank_id][slice_id];
+        rank.poll_dpu(slice, member, &mut running, &mut fault)?;
 
-        if (slice_run & mask) == 0 {
+        if !running {
             Ok(RunStatus::Idle)
-        } else if (slice_fault & mask) == 0 {
+        } else if !fault {
             Ok(RunStatus::Running)
         } else {
             Ok(RunStatus::Fault(vec![dpu.clone()]))
@@ -462,68 +391,6 @@ impl Driver {
         let rank = self.rank_handler.get_rank(rank_id);
 
         (rank, slice_id, member_id)
-    }
-}
-
-impl Drop for Driver {
-    fn drop(&mut self) {
-        // unwrap: handle is always Some(_), until this unique call to drop
-        let handle = self.watcher.handle.take().unwrap();
-
-        self.watcher.sender.send(ClusterMessage::Shutdown);
-        handle.join();
-    }
-}
-
-impl Watcher {
-    fn launch(rank_handler: Arc<RankHandler>) -> WatcherControl {
-        let (sender, receiver) = mpsc::channel();
-        let mut watcher = Watcher::new(receiver, rank_handler);
-        let handle = thread::spawn(move || watcher.run());
-
-        WatcherControl { sender, handle: Some(handle) }
-    }
-
-    fn new(receiver: Receiver<ClusterMessage>, rank_handler: Arc<RankHandler>) -> Watcher {
-        Watcher { receiver, rank_handler }
-    }
-
-    fn run(&mut self) -> () {
-        loop {
-            match self.receiver.try_recv() {
-                Ok(ClusterMessage::ToggleActivity) =>
-                    match self.receiver.recv() {
-                        Ok(ClusterMessage::ToggleActivity) => (),
-                        Ok(ClusterMessage::Shutdown) => return,
-                        Err(_) => return,
-                    },
-                Ok(ClusterMessage::Shutdown) => return,
-                Err(TryRecvError::Empty) => (),
-                Err(TryRecvError::Disconnected) => {
-                    return;
-                },
-            };
-
-            match self.update_cluster_state() {
-                Err(err) => {
-                    // unwrap: no owner of the mutex should panic
-                    self.rank_handler.state.lock().unwrap().internal_error = Some(err);
-                    return;
-                },
-                Ok(_) => ()
-            }
-        }
-    }
-
-    fn update_cluster_state(&mut self) -> Result<(), DpuError> {
-        // unwrap: no owner of the mutex should panic
-        let mut state = self.rank_handler.state.lock().unwrap();
-
-        for (rank_idx, rank) in self.rank_handler.ranks.iter().enumerate() {
-            rank.poll_all(state.run_bitfields[rank_idx].as_mut_ptr(), state.fault_bitfields[rank_idx].as_mut_ptr())?;
-        }
-
-        Ok(())
     }
 }
 

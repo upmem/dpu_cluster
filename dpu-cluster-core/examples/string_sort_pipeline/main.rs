@@ -40,10 +40,10 @@ enum AppError {
     InputFileTooBig(usize)
 }
 
-const INPUTS: &'static [&'static str] = &["input.txt", "input.txt", "input.txt", "input.txt"];
+const INPUTS: &'static [&'static str] = &["input.txt"; 16];
 
 fn main() -> Result<(), AppError> {
-    let config = ClusterConfiguration::for_functional_simulator(1);
+    let config = ClusterConfiguration::for_functional_simulator(8);
     let cluster = Cluster::create(config)?;
     let mram_size = cluster.driver().rank_description.memories.mram_size;
 

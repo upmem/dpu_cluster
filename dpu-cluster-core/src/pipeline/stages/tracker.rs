@@ -14,6 +14,8 @@ use pipeline::ThreadHandle;
 use std::thread;
 use pipeline::stages::GroupJob;
 use cluster::Cluster;
+use std::time::Duration;
+use std::time::Instant;
 
 pub struct ExecutionTracker {
     cluster: Arc<Cluster>,
@@ -38,19 +40,28 @@ impl ExecutionTracker {
 
     fn run(self) {
         let mut jobs = Vec::default();
+        let mut active_time = Duration::new(0, 0);
 
         loop {
             loop {
                 match self.job_receiver.try_recv() {
                     Ok(job) => jobs.push(job),
                     Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => if jobs.len() == 0 { return } else { break },
+                    Err(TryRecvError::Disconnected) =>
+                        if jobs.len() == 0 {
+                            println!("TRACKER: ACTIVE: {:?}", active_time);
+                            return
+                        } else {
+                            break
+                        },
                 }
             }
 
             let mut new_jobs = Vec::with_capacity(jobs.len());
 
             for job in jobs {
+                let start = Instant::now();
+
                 match self.fetch_group_status(&job.0) {
                     Ok(RunStatus::Idle) => self.finish_sender.send(job).unwrap(),
                     Ok(RunStatus::Running) => new_jobs.push(job),
@@ -63,6 +74,8 @@ impl ExecutionTracker {
                         self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
                     }
                 }
+
+                active_time = active_time + start.elapsed();
             }
 
             jobs = new_jobs;

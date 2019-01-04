@@ -6,7 +6,6 @@ use pipeline::output::Output;
 use pipeline::pipeline::Pipeline;
 use std::sync::Arc;
 use cluster::Cluster;
-use pipeline::transfer::OutputMemoryTransfer;
 
 pub struct Plan<'a, T, F: Fn(T) -> MemoryTransfers + Send, IT: Iterator<Item=T> + Send> {
     base_iterator: Box<IT>,
@@ -42,12 +41,5 @@ impl <'a, T, F, IT> Plan<'a, T, F, IT>
         let pipeline = Pipeline::new(self.base_iterator, cluster, self.transfers_fn);
 
         Ok(Output::new(pipeline))
-    }
-}
-
-fn no_transfer<T>(_: T) -> MemoryTransfers {
-    MemoryTransfers {
-        inputs: Vec::default(),
-        output: OutputMemoryTransfer { offset: 0, length: 0 }
     }
 }

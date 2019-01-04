@@ -31,6 +31,7 @@ impl Pipeline {
     {
         let shutdown = Arc::new(Mutex::new(false));
 
+        // todo: should we offer the possibility of sync_channel (buffered sender) ?
         let (input_tx, input_rx) = channel();
         let (output_tx, output_rx) = channel();
         let (group_tx, group_rx) = channel();
