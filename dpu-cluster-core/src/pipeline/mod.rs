@@ -9,6 +9,7 @@ pub mod output;
 
 mod stages;
 mod pipeline;
+mod monitoring;
 
 #[derive(Debug)]
 pub enum PipelineError {
@@ -24,3 +25,5 @@ impl From<ClusterError> for PipelineError {
 
 type OutputResult = Result<Vec<u8>, PipelineError>;
 type ThreadHandle = Option<JoinHandle<()>>;
+
+type GroupId = u32;

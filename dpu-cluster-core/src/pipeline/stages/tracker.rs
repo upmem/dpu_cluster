@@ -16,12 +16,17 @@ use pipeline::stages::GroupJob;
 use cluster::Cluster;
 use std::time::Duration;
 use std::time::Instant;
+use pipeline::monitoring::EventMonitor;
+use pipeline::monitoring::Process;
+use pipeline::monitoring::Event;
+use driver::Driver;
 
 pub struct ExecutionTracker {
     cluster: Arc<Cluster>,
     job_receiver: Receiver<GroupJob>,
     finish_sender: Sender<GroupJob>,
     output_sender: Sender<OutputResult>,
+    monitoring: EventMonitor,
     shutdown: Arc<Mutex<bool>>
 }
 
@@ -30,8 +35,11 @@ impl ExecutionTracker {
                job_receiver: Receiver<GroupJob>,
                finish_sender: Sender<GroupJob>,
                output_sender: Sender<OutputResult>,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
-        ExecutionTracker { cluster, job_receiver, finish_sender, output_sender, shutdown }
+        monitoring.set_process(Process::Tracker);
+
+        ExecutionTracker { cluster, job_receiver, finish_sender, output_sender, monitoring, shutdown }
     }
 
     pub fn launch(self) -> ThreadHandle {
@@ -39,17 +47,23 @@ impl ExecutionTracker {
     }
 
     fn run(self) {
+        let mut monitoring = self.monitoring;
+
+        monitoring.record(Event::ProcessBegin);
+
         let mut jobs = Vec::default();
-        let mut active_time = Duration::new(0, 0);
 
         loop {
             loop {
                 match self.job_receiver.try_recv() {
-                    Ok(job) => jobs.push(job),
+                    Ok(job) => {
+                        monitoring.record(Event::JobExecutionTrackingBegin(job.0.id.clone()));
+                        jobs.push(job);
+                    },
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) =>
                         if jobs.len() == 0 {
-                            println!("TRACKER: ACTIVE: {:?}", active_time);
+                            monitoring.record(Event::ProcessEnd);
                             return
                         } else {
                             break
@@ -60,38 +74,40 @@ impl ExecutionTracker {
             let mut new_jobs = Vec::with_capacity(jobs.len());
 
             for job in jobs {
-                let start = Instant::now();
-
-                match self.fetch_group_status(&job.0) {
-                    Ok(RunStatus::Idle) => self.finish_sender.send(job).unwrap(),
+                let group_id = job.0.id;
+                match fetch_group_status(self.cluster.driver(), &job.0) {
                     Ok(RunStatus::Running) => new_jobs.push(job),
+                    Ok(RunStatus::Idle) => {
+                        monitoring.record(Event::JobExecutionTrackingEnd(group_id));
+                        self.finish_sender.send(job).unwrap();
+                    },
                     Ok(RunStatus::Fault(faults)) => {
+                        monitoring.record(Event::JobExecutionTrackingEnd(group_id));
                         for faulting_dpu in faults {
                             self.output_sender.send(Err(PipelineError::ExecutionError(faulting_dpu))).unwrap();
                         }
                     },
                     Err(err) => {
+                        monitoring.record(Event::JobExecutionTrackingEnd(group_id));
                         self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
                     }
                 }
-
-                active_time = active_time + start.elapsed();
             }
 
             jobs = new_jobs;
         }
     }
+}
 
-    fn fetch_group_status(&self, group: &DpuGroup) -> Result<RunStatus, ClusterError> {
-        // todo add this as a view optimization?
+fn fetch_group_status(driver: &Driver, group: &DpuGroup) -> Result<RunStatus, ClusterError> {
+    // todo add this as a view optimization?
 
-        let mut global_status = RunStatus::default();
+    let mut global_status = RunStatus::default();
 
-        for dpu in &group.dpus {
-            let status = self.cluster.driver().fetch_status(&View::one(dpu.clone()))?;
-            global_status = global_status.merge_with(&status)
-        }
-
-        Ok(global_status)
+    for dpu in &group.dpus {
+        let status = driver.fetch_status(&View::one(dpu.clone()))?;
+        global_status = global_status.merge_with(&status)
     }
+
+    Ok(global_status)
 }

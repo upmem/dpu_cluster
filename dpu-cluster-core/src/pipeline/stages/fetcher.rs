@@ -12,12 +12,16 @@ use pipeline::stages::GroupJob;
 use cluster::Cluster;
 use std::time::Instant;
 use std::time::Duration;
+use pipeline::monitoring::EventMonitor;
+use pipeline::monitoring::Process;
+use pipeline::monitoring::Event;
 
 pub struct OutputFetcher {
     cluster: Arc<Cluster>,
     finish_receiver: Receiver<GroupJob>,
     output_sender: Sender<OutputResult>,
     group_sender: Sender<DpuGroup>,
+    monitoring: EventMonitor,
     shutdown: Arc<Mutex<bool>>
 }
 
@@ -26,8 +30,11 @@ impl OutputFetcher {
                finish_receiver: Receiver<GroupJob>,
                output_sender: Sender<OutputResult>,
                group_sender: Sender<DpuGroup>,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
-        OutputFetcher { cluster, finish_receiver, output_sender, group_sender, shutdown }
+        monitoring.set_process(Process::Fetcher);
+
+        OutputFetcher { cluster, finish_receiver, output_sender, group_sender, monitoring, shutdown }
     }
 
     pub fn launch(self) -> ThreadHandle {
@@ -35,20 +42,13 @@ impl OutputFetcher {
     }
 
     fn run(self) {
-        let mut start = None;
-        let mut wait: Option<Instant> = None;
-        let mut wait_time = Duration::new(0, 0);
+        let mut monitoring = self.monitoring;
+
+        monitoring.record(Event::ProcessBegin);
 
         for (group, transfers) in self.finish_receiver {
-            start.get_or_insert_with(|| Instant::now());
-
-            match wait {
-                None => (),
-                Some(start_instant) => {
-                    wait_time = wait_time + start_instant.elapsed();
-                    wait = None;
-                },
-            }
+            let group_id = group.id;
+            monitoring.record(Event::OutputFetchingBegin(group_id));
 
             let mut vectors = transfers.iter().map(|transfer| {
                 let mut v = Vec::with_capacity(transfer.length as usize);
@@ -75,17 +75,11 @@ impl OutputFetcher {
                 },
             };
 
+            monitoring.record(Event::OutputFetchingEnd(group_id));
+
             self.group_sender.send(group);
-
-            wait.get_or_insert_with(|| Instant::now());
         }
 
-        match start {
-            None => println!("FETCHER: No input"),
-            Some(start_instant) => {
-                println!("FETCHER: Duration: {:?}", start_instant.elapsed());
-                println!("FETCHER: WAIT: {:?}", wait_time)
-            },
-        }
+        monitoring.record(Event::ProcessEnd);
     }
 }

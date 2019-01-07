@@ -12,6 +12,7 @@ use pipeline::stages::tracker::ExecutionTracker;
 use pipeline::stages::fetcher::OutputFetcher;
 use dpu::DpuId;
 use pipeline::stages::DpuGroup;
+use pipeline::monitoring::EventMonitor;
 
 pub struct Pipeline {
     pub output_receiver: Receiver<OutputResult>,
@@ -24,7 +25,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new<I, F, IT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>) -> Self
+    pub fn new<I, F, IT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>, mut monitoring: EventMonitor) -> Self
         where I: Send + 'static,
               IT: Iterator<Item=I> + Send + 'static,
               F: Fn(I) -> MemoryTransfers + Send + 'static
@@ -51,7 +52,7 @@ impl Pipeline {
                         dpus.push(DpuId::new(rank_idx, slice_idx, dpu_idx));
                     }
 
-                    vec.push(DpuGroup { dpus } );
+                    vec.push(DpuGroup { id: ((rank_idx as u32) * (nr_dpus as u32)) + (dpu_idx as u32), dpus } );
                 }
             }
 
@@ -59,23 +60,23 @@ impl Pipeline {
         };
 
         let input_initializer = InputInitializer::new(
-            iterator, input_tx, shutdown.clone()
+            iterator, input_tx, monitoring.clone(), shutdown.clone()
         ).launch();
 
         let input_loader = InputLoader::new(
             cluster.clone(), transfers_fn, groups, input_rx,
             group_rx, incoming_job_tx, output_tx.clone(),
-            shutdown.clone()
+            monitoring.clone(), shutdown.clone()
         ).launch();
 
         let execution_tracker = ExecutionTracker::new(
             cluster.clone(), incoming_job_rx, finished_job_tx,
-            output_tx.clone(), shutdown.clone()
+            output_tx.clone(), monitoring.clone(), shutdown.clone()
         ).launch();
 
         let output_fetcher = OutputFetcher::new(
             cluster.clone(), finished_job_rx, output_tx.clone(),
-            group_tx, shutdown.clone()
+            group_tx, monitoring.clone(), shutdown.clone()
         ).launch();
 
         Pipeline {

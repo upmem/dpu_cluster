@@ -5,10 +5,14 @@ use pipeline::ThreadHandle;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use pipeline::monitoring::EventMonitor;
+use pipeline::monitoring::Event;
+use pipeline::monitoring::Process;
 
 pub struct InputInitializer<I, IT: Iterator<Item=I> + Send> {
     iterator: Box<IT>,
     sender: Sender<I>,
+    monitoring: EventMonitor,
     shutdown: Arc<Mutex<bool>>
 }
 
@@ -16,8 +20,11 @@ impl <I: Send + 'static, IT: Iterator<Item=I> + Send + 'static> InputInitializer
 {
     pub fn new(iterator: Box<IT>,
                sender: Sender<I>,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
-        InputInitializer { iterator, sender, shutdown }
+        monitoring.set_process(Process::Initializer);
+
+        InputInitializer { iterator, sender, monitoring, shutdown }
     }
 
     pub fn launch(self) -> ThreadHandle {
@@ -25,28 +32,20 @@ impl <I: Send + 'static, IT: Iterator<Item=I> + Send + 'static> InputInitializer
     }
 
     fn run(self) {
-        let mut wait: Option<Instant> = None;
-        let mut preprocess_time = Duration::new(0, 0);
+        let mut monitoring = self.monitoring;
+
+        monitoring.record(Event::ProcessBegin);
 
         for item in self.iterator {
-            match wait {
-                None => (),
-                Some(start_instant) => {
-                    preprocess_time = preprocess_time + start_instant.elapsed();
-                    wait = None;
-                },
-            }
+            monitoring.record(Event::NewInput);
 
             if *self.shutdown.lock().unwrap() {
-                println!("INITIALIZER: PREPROCESS: {:?}", preprocess_time);
-                return;
+                break;
             } else {
                 self.sender.send(item).unwrap();
             }
-
-            wait.get_or_insert_with(|| Instant::now());
         }
 
-        println!("INITIALIZER: PREPROCESS: {:?}", preprocess_time);
+        monitoring.record(Event::ProcessEnd);
     }
 }

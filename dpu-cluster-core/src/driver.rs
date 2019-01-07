@@ -1,12 +1,3 @@
-use std::sync::Arc;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use std::sync::mpsc::TryRecvError;
-use std::sync::Mutex;
-use std::thread;
-use std::thread::JoinHandle;
-
 use dpu::DpuId;
 use dpu_sys::DpuRank;
 use dpu_sys::DpuRankDescription;
@@ -16,11 +7,9 @@ use program::Program;
 use view::FastSelection;
 use view::Selection;
 use view::View;
-use dpu_sys::DpuError;
 use dpu_sys::DpuDebugContext;
 use memory::MemoryTransfer;
 use memory::MemoryTransferRankEntry;
-use std::time::Duration;
 
 #[derive(Debug)]
 pub struct Driver {

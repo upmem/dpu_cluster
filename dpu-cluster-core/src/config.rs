@@ -13,4 +13,11 @@ impl ClusterConfiguration {
             nr_of_dpus_expected: Some(nr_of_dpus)
         }
     }
+
+    pub fn for_hardware(nr_of_dpus: u32) -> ClusterConfiguration {
+        ClusterConfiguration {
+            target: DpuTarget::for_hardware_implementation(),
+            nr_of_dpus_expected: Some(nr_of_dpus)
+        }
+    }
 }

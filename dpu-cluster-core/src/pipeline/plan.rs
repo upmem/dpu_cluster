@@ -6,6 +6,8 @@ use pipeline::output::Output;
 use pipeline::pipeline::Pipeline;
 use std::sync::Arc;
 use cluster::Cluster;
+use pipeline::monitoring::EventMonitor;
+use pipeline::monitoring::Event;
 
 pub struct Plan<'a, T, F: Fn(T) -> MemoryTransfers + Send, IT: Iterator<Item=T> + Send> {
     base_iterator: Box<IT>,
@@ -34,11 +36,15 @@ impl <'a, T, F, IT> Plan<'a, T, F, IT>
     }
 
     pub fn execute(self, cluster: Arc<Cluster>) -> Result<Output, PipelineError> {
+        let mut monitoring = EventMonitor::new();
+
         if let Some(program) = self.program {
-            cluster.driver().load(&View::all(), program)?
+            monitoring.record(Event::LoadingProgramBegin);
+            cluster.driver().load(&View::all(), program)?;
+            monitoring.record(Event::LoadingProgramEnd);
         }
 
-        let pipeline = Pipeline::new(self.base_iterator, cluster, self.transfers_fn);
+        let pipeline = Pipeline::new(self.base_iterator, cluster, self.transfers_fn, monitoring);
 
         Ok(Output::new(pipeline))
     }
