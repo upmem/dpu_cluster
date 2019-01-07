@@ -15,8 +15,6 @@ use pipeline::stages::GroupJob;
 use cluster::Cluster;
 use memory::MemoryTransfer;
 use error::ClusterError;
-use std::time::Instant;
-use std::time::Duration;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
@@ -96,6 +94,25 @@ impl <I> InputLoader<I>
     }
 }
 
+fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGroup>) -> DpuGroup {
+    match groups.pop() {
+        Some(grp) => grp,
+        None => {
+            // todo: fix the issue where no group may be sent because all have failed
+            let grp = group_receiver.recv().unwrap();
+
+            loop {
+                match group_receiver.try_recv() {
+                    Ok(other_group) => groups.push(other_group),
+                    Err(_) => break,
+                }
+            }
+
+            grp
+        },
+    }
+}
+
 fn load_input_chunk(driver: &Driver, group: DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>,
                     outs: Vec<OutputMemoryTransfer>, job_sender: &Sender<GroupJob>, output_sender: &Sender<OutputResult>) {
     match chunk.iter().max_by_key(|t| t.len()).map(|t| t.len()) {
@@ -106,16 +123,21 @@ fn load_input_chunk(driver: &Driver, group: DpuGroup, chunk: Vec<Vec<InputMemory
                     output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap()
                 },
                 Ok(_) => {
+                    let mut fault = false;
                     for dpu in &group.dpus {
                         match driver.boot(&View::one(dpu.clone())) {
                             Ok(_) => (),
                             Err(err) => {
-                                output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap()
+                                output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
+                                fault = true;
+                                break;
                             }
                         }
                     }
 
-                    job_sender.send((group, outs)).unwrap();
+                    if !fault {
+                        job_sender.send((group, outs)).unwrap();
+                    }
                 },
             },
     }
@@ -141,23 +163,4 @@ fn do_memory_transfers(driver: &Driver, group: &DpuGroup, mut chunk: Vec<Vec<Inp
     }
 
     Ok(())
-}
-
-fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGroup>) -> DpuGroup {
-    match groups.pop() {
-        Some(grp) => grp,
-        None => {
-            // todo: fix the issue where no group may be sent because all have failed
-            let grp = group_receiver.recv().unwrap();
-
-            loop {
-                match group_receiver.try_recv() {
-                    Ok(other_group) => groups.push(other_group),
-                    Err(_) => break,
-                }
-            }
-
-            grp
-        },
-    }
 }

@@ -275,10 +275,15 @@ impl Driver {
 
     fn boot_rank(&self, rank: &DpuRank) -> Result<(), ClusterError> {
         let nr_of_slices = self.rank_description.topology.nr_of_control_interfaces as usize;
-        let mut was_running = Vec::with_capacity(nr_of_slices);
-        was_running.resize(nr_of_slices, 0);
+        let mut was_running = vec!(0; nr_of_slices);
 
         rank.launch_thread_on_all(BOOTSTRAP_THREAD, false, was_running.as_mut_ptr())?;
+
+        for slice_was_running in was_running {
+            if slice_was_running != 0 {
+                return Err(ClusterError::DpuIsAlreadyRunning);
+            }
+        }
 
         Ok(())
     }
@@ -289,7 +294,11 @@ impl Driver {
 
         rank.launch_thread_on_dpu(slice, member, BOOTSTRAP_THREAD, false, &mut was_running)?;
 
-        Ok(())
+        if was_running {
+            Err(ClusterError::DpuIsAlreadyRunning)
+        } else {
+            Ok(())
+        }
     }
 
     fn fetch_all_status(&self) -> Result<RunStatus, ClusterError> {

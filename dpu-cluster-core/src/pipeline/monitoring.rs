@@ -1,4 +1,3 @@
-use std::time::Instant;
 use pipeline::GroupId;
 use chrono::Local;
 
@@ -34,7 +33,7 @@ pub struct EventMonitor {
 
 impl EventMonitor {
     pub fn new() -> Self {
-        EventMonitor {  process: Default::default() }
+        EventMonitor { process: Default::default() }
     }
 
     pub fn set_process(&mut self, process: Process) {
@@ -42,7 +41,7 @@ impl EventMonitor {
     }
 
     pub fn record(&mut self, event: Event) {
-        let process_str = self.process.iter().fold("".to_string(), |_, p| format!("{:?}", p));
+        let process_str = self.process.as_ref().map_or("".to_string(), |p| format!("{:?}", p));
 
         println!("[{}][{}] {:?}", Local::now().format("%F %T%.f").to_string(), process_str, event);
     }

@@ -3,8 +3,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use pipeline::ThreadHandle;
 use std::thread;
-use std::time::Duration;
-use std::time::Instant;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Event;
 use pipeline::monitoring::Process;

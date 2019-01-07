@@ -25,7 +25,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new<I, F, IT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>, mut monitoring: EventMonitor) -> Self
+    pub fn new<I, F, IT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>, monitoring: EventMonitor) -> Self
         where I: Send + 'static,
               IT: Iterator<Item=I> + Send + 'static,
               F: Fn(I) -> MemoryTransfers + Send + 'static
@@ -91,6 +91,7 @@ impl Pipeline {
 }
 
 impl Drop for Pipeline {
+    #[allow(unused_must_use)]
     fn drop(&mut self) {
         {
             *self.shutdown.lock().unwrap() = true;

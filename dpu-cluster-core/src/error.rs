@@ -5,6 +5,7 @@ use dpu::DpuId;
 pub enum ClusterError {
     NotEnoughResources {expected: u32, found: u32 },
     LowLevelError(DpuError),
+    DpuIsAlreadyRunning,
     DpuIsInFault(DpuId)
 }
 

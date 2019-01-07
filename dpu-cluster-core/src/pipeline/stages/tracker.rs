@@ -14,8 +14,6 @@ use pipeline::ThreadHandle;
 use std::thread;
 use pipeline::stages::GroupJob;
 use cluster::Cluster;
-use std::time::Duration;
-use std::time::Instant;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
@@ -57,7 +55,7 @@ impl ExecutionTracker {
             loop {
                 match self.job_receiver.try_recv() {
                     Ok(job) => {
-                        monitoring.record(Event::JobExecutionTrackingBegin(job.0.id.clone()));
+                        monitoring.record(Event::JobExecutionTrackingBegin(job.0.id));
                         jobs.push(job);
                     },
                     Err(TryRecvError::Empty) => break,
