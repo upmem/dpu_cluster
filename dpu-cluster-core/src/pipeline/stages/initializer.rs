@@ -7,18 +7,18 @@ use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Event;
 use pipeline::monitoring::Process;
 
-pub struct InputInitializer<I, IT: Iterator<Item=I> + Send> {
+pub struct InputInitializer<I, IT: Iterator<Item=I> + Send, M: EventMonitor + Send + 'static> {
     iterator: Box<IT>,
     sender: Sender<I>,
-    monitoring: EventMonitor,
+    monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <I: Send + 'static, IT: Iterator<Item=I> + Send + 'static> InputInitializer<I, IT>
+impl <I: Send + 'static, IT: Iterator<Item=I> + Send + 'static, M: EventMonitor + Send + 'static> InputInitializer<I, IT, M>
 {
     pub fn new(iterator: Box<IT>,
                sender: Sender<I>,
-               mut monitoring: EventMonitor,
+               mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Initializer);
 

@@ -11,11 +11,11 @@ use std::io;
 use std::fs::OpenOptions;
 use std::io::Write;
 use dpu_cluster_core::pipeline::plan::Plan;
-use std::sync::Arc;
 use dpu_cluster_core::pipeline::transfer::MemoryTransfers;
 use dpu_cluster_core::pipeline::transfer::OutputMemoryTransfer;
 use dpu_cluster_core::pipeline::transfer::InputMemoryTransfer;
 use dpu_cluster_core::error::ClusterError;
+use dpu_cluster_core::pipeline::monitoring::StdoutEventMonitor;
 
 const NB_WORD_MAX: u32 = 7450;
 
@@ -50,9 +50,9 @@ fn main() -> Result<(), AppError> {
     let program = fetch_dpu_program()?;
 
     let inputs = INPUTS.iter().map(move |filename| extract_inputs(filename, mram_size).unwrap());
-    let outputs = Plan::new(inputs, map_transfers)
+    let outputs = Plan::new(inputs, map_transfers, StdoutEventMonitor::new())
         .running(&program)
-        .execute(Arc::new(cluster))?;
+        .execute(cluster)?;
 
     for (idx, output) in outputs.enumerate() {
         let output = output?;

@@ -19,21 +19,21 @@ use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
 
-pub struct ExecutionTracker {
+pub struct ExecutionTracker<M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
     job_receiver: Receiver<GroupJob>,
     finish_sender: Sender<GroupJob>,
     output_sender: Sender<OutputResult>,
-    monitoring: EventMonitor,
+    monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl ExecutionTracker {
+impl <M: EventMonitor + Send + 'static> ExecutionTracker<M> {
     pub fn new(cluster: Arc<Cluster>,
                job_receiver: Receiver<GroupJob>,
                finish_sender: Sender<GroupJob>,
                output_sender: Sender<OutputResult>,
-               mut monitoring: EventMonitor,
+               mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Tracker);
 

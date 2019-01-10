@@ -20,7 +20,7 @@ use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
 
-pub struct InputLoader<I> {
+pub struct InputLoader<I, M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
     get_transfers: Box<Fn(I) -> MemoryTransfers + Send>,
     groups: Vec<DpuGroup>,
@@ -28,12 +28,13 @@ pub struct InputLoader<I> {
     group_receiver: Receiver<DpuGroup>,
     job_sender: Sender<GroupJob>,
     output_sender: Sender<OutputResult>,
-    monitoring: EventMonitor,
+    monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <I> InputLoader<I>
-    where I: Send + 'static
+impl <I, M> InputLoader<I, M>
+    where I: Send + 'static,
+          M: EventMonitor + Send + 'static
 {
     pub fn new(cluster: Arc<Cluster>,
                get_transfers: Box<Fn(I) -> MemoryTransfers + Send>,
@@ -42,7 +43,7 @@ impl <I> InputLoader<I>
                group_receiver: Receiver<DpuGroup>,
                job_sender: Sender<GroupJob>,
                output_sender: Sender<OutputResult>,
-               mut monitoring: EventMonitor,
+               mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Loader);
 

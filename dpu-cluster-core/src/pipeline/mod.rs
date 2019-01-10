@@ -6,10 +6,10 @@ use error::ClusterError;
 pub mod plan;
 pub mod transfer;
 pub mod output;
+pub mod monitoring;
 
 mod stages;
 mod pipeline;
-mod monitoring;
 
 #[derive(Debug)]
 pub enum PipelineError {

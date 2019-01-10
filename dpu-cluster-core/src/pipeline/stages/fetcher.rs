@@ -14,21 +14,21 @@ use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 
-pub struct OutputFetcher {
+pub struct OutputFetcher<M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
     finish_receiver: Receiver<GroupJob>,
     output_sender: Sender<OutputResult>,
     group_sender: Sender<DpuGroup>,
-    monitoring: EventMonitor,
+    monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl OutputFetcher {
+impl <M: EventMonitor + Send + 'static> OutputFetcher<M> {
     pub fn new(cluster: Arc<Cluster>,
                finish_receiver: Receiver<GroupJob>,
                output_sender: Sender<OutputResult>,
                group_sender: Sender<DpuGroup>,
-               mut monitoring: EventMonitor,
+               mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Fetcher);
 
@@ -55,6 +55,7 @@ impl OutputFetcher {
             let copy_result = {
                 let mut memory_transfer = MemoryTransfer::default();
                 for ((vector, offset), dpu) in vectors.iter_mut().zip(&group.dpus) {
+                    monitoring.record(Event::OutputFetchingInfo { dpu: dpu.clone(), offset: *offset, length: vector.len() as u32});
                     memory_transfer.add_in_place(dpu.clone(), *offset, vector.as_mut_slice());
                 }
                 self.cluster.driver().copy_from_memory(&mut memory_transfer)

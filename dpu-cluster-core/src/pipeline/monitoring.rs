@@ -1,9 +1,11 @@
 use pipeline::GroupId;
 use chrono::Local;
+use dpu::DpuId;
 
 #[derive(Debug)]
 pub enum Event {
-    LoadingProgramBegin,
+    Initialization { nr_ranks: u8, nr_slices: u8, nr_dpus: u8 },
+    LoadingProgramBegin { nr_instructions: u32, nr_data_bytes: u32 },
     LoadingProgramEnd,
     ProcessBegin,
     ProcessEnd,
@@ -15,6 +17,7 @@ pub enum Event {
     JobExecutionTrackingBegin(GroupId),
     JobExecutionTrackingEnd(GroupId),
     OutputFetchingBegin(GroupId),
+    OutputFetchingInfo { dpu: DpuId, offset: u32, length: u32 },
     OutputFetchingEnd(GroupId),
 }
 
@@ -26,23 +29,45 @@ pub enum Process {
     Fetcher
 }
 
+pub trait EventMonitor {
+    fn set_process(&mut self, process: Process);
+    fn record(&mut self, event: Event);
+}
+
 #[derive(Clone)]
-pub struct EventMonitor {
+pub struct StdoutEventMonitor {
     process: Option<Process>
 }
 
-impl EventMonitor {
+impl StdoutEventMonitor {
     pub fn new() -> Self {
-        EventMonitor { process: Default::default() }
+        StdoutEventMonitor { process: Default::default() }
     }
+}
 
-    pub fn set_process(&mut self, process: Process) {
+impl EventMonitor for StdoutEventMonitor {
+    fn set_process(&mut self, process: Process) {
         self.process = Some(process);
     }
 
-    pub fn record(&mut self, event: Event) {
+    fn record(&mut self, event: Event) {
         let process_str = self.process.as_ref().map_or("".to_string(), |p| format!("{:?}", p));
 
         println!("[{}][{}] {:?}", Local::now().format("%F %T%.f").to_string(), process_str, event);
     }
+}
+
+#[derive(Clone)]
+pub struct EmptyEventMonitor;
+
+impl EmptyEventMonitor {
+    pub fn new() -> Self {
+        EmptyEventMonitor { }
+    }
+}
+
+impl EventMonitor for EmptyEventMonitor {
+    fn set_process(&mut self, process: Process) { }
+
+    fn record(&mut self, event: Event) { }
 }

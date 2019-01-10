@@ -25,10 +25,11 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new<I, F, IT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>, monitoring: EventMonitor) -> Self
+    pub fn new<I, F, IT, M>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>, monitoring: M) -> Self
         where I: Send + 'static,
               IT: Iterator<Item=I> + Send + 'static,
-              F: Fn(I) -> MemoryTransfers + Send + 'static
+              F: Fn(I) -> MemoryTransfers + Send + 'static,
+              M: EventMonitor + Clone + Send + 'static
     {
         let shutdown = Arc::new(Mutex::new(false));
 
