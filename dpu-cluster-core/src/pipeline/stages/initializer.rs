@@ -1,4 +1,4 @@
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use pipeline::ThreadHandle;
@@ -9,7 +9,7 @@ use pipeline::monitoring::Process;
 
 pub struct InputInitializer<I, IT: Iterator<Item=I> + Send, M: EventMonitor + Send + 'static> {
     iterator: Box<IT>,
-    sender: Sender<I>,
+    sender: SyncSender<I>,
     monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
@@ -17,7 +17,7 @@ pub struct InputInitializer<I, IT: Iterator<Item=I> + Send, M: EventMonitor + Se
 impl <I: Send + 'static, IT: Iterator<Item=I> + Send + 'static, M: EventMonitor + Send + 'static> InputInitializer<I, IT, M>
 {
     pub fn new(iterator: Box<IT>,
-               sender: Sender<I>,
+               sender: SyncSender<I>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Initializer);

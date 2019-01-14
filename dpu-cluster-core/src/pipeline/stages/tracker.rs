@@ -18,6 +18,7 @@ use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
+use std::time::Duration;
 
 pub struct ExecutionTracker<M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
@@ -93,6 +94,9 @@ impl <M: EventMonitor + Send + 'static> ExecutionTracker<M> {
             }
 
             jobs = new_jobs;
+
+            // todo: sleep duration should be a config parameter
+            thread::sleep(Duration::from_millis(10))
         }
     }
 }

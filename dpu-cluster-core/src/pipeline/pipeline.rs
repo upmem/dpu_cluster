@@ -6,6 +6,7 @@ use std::sync::Arc;
 use cluster::Cluster;
 use pipeline::transfer::MemoryTransfers;
 use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 use pipeline::stages::initializer::InputInitializer;
 use pipeline::stages::loader::InputLoader;
 use pipeline::stages::tracker::ExecutionTracker;
@@ -33,14 +34,15 @@ impl Pipeline {
     {
         let shutdown = Arc::new(Mutex::new(false));
 
-        // todo: should we offer the possibility of sync_channel (buffered sender) ?
-        let (input_tx, input_rx) = channel();
+        let (nr_ranks, nr_slices, nr_dpus) = cluster.topology();
+
+        // todo: sync channel bound should be a config parameter
+        let (input_tx, input_rx) = sync_channel(2 * (nr_slices as usize));
         let (output_tx, output_rx) = channel();
         let (group_tx, group_rx) = channel();
         let (incoming_job_tx, incoming_job_rx) = channel();
+        // todo: use sync channel for this channel to manage slow post processing
         let (finished_job_tx, finished_job_rx) = channel();
-
-        let (nr_ranks, nr_slices, nr_dpus) = cluster.topology();
 
         let groups = {
             let mut vec = Vec::with_capacity((nr_ranks as usize) * (nr_dpus  as usize));
