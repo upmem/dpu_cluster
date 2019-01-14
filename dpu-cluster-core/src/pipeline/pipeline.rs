@@ -14,9 +14,11 @@ use pipeline::stages::fetcher::OutputFetcher;
 use dpu::DpuId;
 use pipeline::stages::DpuGroup;
 use pipeline::monitoring::EventMonitor;
+use std::time::Duration;
+use dpu_sys::DpuType;
 
-pub struct Pipeline {
-    pub output_receiver: Receiver<OutputResult>,
+pub struct Pipeline<K> {
+    pub output_receiver: Receiver<OutputResult<K>>,
 
     input_initializer: ThreadHandle,
     input_loader: ThreadHandle,
@@ -25,11 +27,11 @@ pub struct Pipeline {
     shutdown: Arc<Mutex<bool>>
 }
 
-impl Pipeline {
+impl <K: Send + 'static> Pipeline<K> {
     pub fn new<I, F, IT, M>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>, monitoring: M) -> Self
         where I: Send + 'static,
               IT: Iterator<Item=I> + Send + 'static,
-              F: Fn(I) -> MemoryTransfers + Send + 'static,
+              F: Fn(I) -> MemoryTransfers<K> + Send + 'static,
               M: EventMonitor + Clone + Send + 'static
     {
         let shutdown = Arc::new(Mutex::new(false));
@@ -62,6 +64,13 @@ impl Pipeline {
             vec
         };
 
+        // todo: tracker_sleep_duration should be a config parameter
+        let tracker_sleep_duration = match cluster.target().dpu_type {
+            DpuType::Hardware => Some(Duration::from_millis(10)),
+            DpuType::BackupSpi => Some(Duration::from_millis(10)),
+            _ => None,
+        };
+
         let input_initializer = InputInitializer::new(
             iterator, input_tx, monitoring.clone(), shutdown.clone()
         ).launch();
@@ -74,7 +83,8 @@ impl Pipeline {
 
         let execution_tracker = ExecutionTracker::new(
             cluster.clone(), incoming_job_rx, finished_job_tx,
-            output_tx.clone(), monitoring.clone(), shutdown.clone()
+            output_tx.clone(), tracker_sleep_duration, monitoring.clone(),
+            shutdown.clone()
         ).launch();
 
         let output_fetcher = OutputFetcher::new(
@@ -93,7 +103,7 @@ impl Pipeline {
     }
 }
 
-impl Drop for Pipeline {
+impl <K> Drop for Pipeline<K> {
     #[allow(unused_must_use)]
     fn drop(&mut self) {
         {

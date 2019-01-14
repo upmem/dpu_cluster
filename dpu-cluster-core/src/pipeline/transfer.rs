@@ -1,8 +1,9 @@
 use core::mem;
 
-pub struct MemoryTransfers {
+pub struct MemoryTransfers<K> {
     pub inputs: Vec<InputMemoryTransfer>,
-    pub output: OutputMemoryTransfer
+    pub output: OutputMemoryTransfer,
+    pub key: K
 }
 
 pub struct InputMemoryTransfer {

@@ -223,15 +223,15 @@ impl Default for DpuType {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct DpuProfile {
     properties: HashMap<String, String>
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct DpuTarget {
-    dpu_type: DpuType,
-    profile: DpuProfile
+    pub dpu_type: DpuType,
+    pub profile: DpuProfile
 }
 
 impl DpuTarget {

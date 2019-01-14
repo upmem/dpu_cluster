@@ -9,24 +9,25 @@ use cluster::Cluster;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Event;
 
-pub struct Plan<'a, T, F: Fn(T) -> MemoryTransfers + Send, IT: Iterator<Item=T> + Send, M: EventMonitor + Clone + Send> {
+pub struct Plan<'a, T, K: Send, F: Fn(T) -> MemoryTransfers<K> + Send, IT: Iterator<Item=T> + Send, M: EventMonitor + Clone + Send> {
     base_iterator: Box<IT>,
     program: Option<&'a Program>,
     transfers_fn: Box<F>,
     monitoring: M,
 }
 
-impl <'a, T, F: Fn(T) -> MemoryTransfers + Send + 'static, IT: Iterator<Item=T> + Send, M: EventMonitor + Clone + Send> Plan<'a, T, F, IT, M> {
+impl <'a, T, K: Send, F: Fn(T) -> MemoryTransfers<K> + Send + 'static, IT: Iterator<Item=T> + Send, M: EventMonitor + Clone + Send> Plan<'a, T, K, F, IT, M> {
     pub fn running(mut self, program: &'a Program) -> Self {
         self.program = Some(program);
         self
     }
 }
 
-impl <'a, T, F, IT, M> Plan<'a, T, F, IT, M>
+impl <'a, T, K, F, IT, M> Plan<'a, T, K, F, IT, M>
     where T: Send + 'static,
           IT: Iterator<Item=T> + Send + 'static,
-          F: Fn(T) -> MemoryTransfers + Send + 'static,
+          K: Send + 'static,
+          F: Fn(T) -> MemoryTransfers<K> + Send + 'static,
           M: EventMonitor + Clone + Send + 'static
 {
     pub fn new(iter: IT, transfers: F, monitoring: M) -> Self {
@@ -38,7 +39,7 @@ impl <'a, T, F, IT, M> Plan<'a, T, F, IT, M>
         }
     }
 
-    pub fn execute(self, cluster: Cluster) -> Result<Output, PipelineError> {
+    pub fn build(self, cluster: Cluster) -> Result<Output<K>, PipelineError> {
         let mut monitoring = self.monitoring;
 
         let (nr_ranks, nr_slices, nr_dpus) = cluster.topology();

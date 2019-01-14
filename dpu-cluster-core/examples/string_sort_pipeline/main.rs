@@ -43,19 +43,22 @@ enum AppError {
 const INPUTS: &'static [&'static str] = &["input.txt"; 16];
 
 fn main() -> Result<(), AppError> {
-    let config = ClusterConfiguration::for_functional_simulator(8);
+    let config = ClusterConfiguration::for_functional_simulator(1);
     let cluster = Cluster::create(config)?;
     let mram_size = cluster.driver().rank_description.memories.mram_size;
 
     let program = fetch_dpu_program()?;
 
-    let inputs = INPUTS.iter().map(move |filename| extract_inputs(filename, mram_size).unwrap());
+    let inputs = INPUTS.iter()
+        .enumerate()
+        .map(move |(idx, filename)| extract_inputs(filename, mram_size, idx).unwrap());
+
     let outputs = Plan::new(inputs, map_transfers, StdoutEventMonitor::new())
         .running(&program)
-        .execute(cluster)?;
+        .build(cluster)?;
 
-    for (idx, output) in outputs.enumerate() {
-        let output = output?;
+    for output in outputs {
+        let (idx, output) = output?;
         let filename = format!("output{}.txt", idx);
         process_outputs(output, &filename)?;
     }
@@ -67,8 +70,8 @@ fn fetch_dpu_program() -> Result<Program, AppError> {
     Ok(Program::new_raw(std::fs::read(DPU_PROGRAM_IRAM)?, std::fs::read(DPU_PROGRAM_WRAM)?))
 }
 
-fn map_transfers(input: (Vec<u8>, Vec<u32>)) -> MemoryTransfers {
-    let (strings, addresses) = input;
+fn map_transfers(input: (usize, Vec<u8>, Vec<u32>)) -> MemoryTransfers<usize> {
+    let (idx, strings, addresses) = input;
     let nr_of_words = addresses.len() as u32;
 
     MemoryTransfers {
@@ -80,11 +83,12 @@ fn map_transfers(input: (Vec<u8>, Vec<u32>)) -> MemoryTransfers {
         output: OutputMemoryTransfer {
             offset: ADDRESSES_OFFSET,
             length: nr_of_words * 4
-        }
+        },
+        key: idx
     }
 }
 
-fn extract_inputs(filename: &str, mram_size: u32) -> Result<(Vec<u8>, Vec<u32>), AppError> {
+fn extract_inputs(filename: &str, mram_size: u32, idx: usize) -> Result<(usize, Vec<u8>, Vec<u32>), AppError> {
     let file = File::open(filename)?;
     let file = BufReader::new(file);
 
@@ -108,7 +112,7 @@ fn extract_inputs(filename: &str, mram_size: u32) -> Result<(Vec<u8>, Vec<u32>),
         return Err(AppError::InputFileTooBig(strings.len()))
     }
 
-    Ok((strings, string_addresses))
+    Ok((idx, strings, string_addresses))
 }
 
 fn process_outputs(output: Vec<u8>, filename: &str) -> Result<(), AppError> {

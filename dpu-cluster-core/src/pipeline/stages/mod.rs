@@ -11,4 +11,4 @@ pub struct DpuGroup {
     pub id: GroupId,
     pub dpus: Vec<DpuId>
 }
-type GroupJob = (DpuGroup, Vec<OutputMemoryTransfer>);
+type GroupJob<K> = (DpuGroup, Vec<(K, OutputMemoryTransfer)>);

@@ -14,19 +14,19 @@ use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 
-pub struct OutputFetcher<M: EventMonitor + Send + 'static> {
+pub struct OutputFetcher<K: Send + 'static, M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
-    finish_receiver: Receiver<GroupJob>,
-    output_sender: Sender<OutputResult>,
+    finish_receiver: Receiver<GroupJob<K>>,
+    output_sender: Sender<OutputResult<K>>,
     group_sender: Sender<DpuGroup>,
     monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <M: EventMonitor + Send + 'static> OutputFetcher<M> {
+impl <K: Send + 'static, M: EventMonitor + Send + 'static> OutputFetcher<K, M> {
     pub fn new(cluster: Arc<Cluster>,
-               finish_receiver: Receiver<GroupJob>,
-               output_sender: Sender<OutputResult>,
+               finish_receiver: Receiver<GroupJob<K>>,
+               output_sender: Sender<OutputResult<K>>,
                group_sender: Sender<DpuGroup>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
@@ -48,13 +48,15 @@ impl <M: EventMonitor + Send + 'static> OutputFetcher<M> {
             let group_id = group.id;
             monitoring.record(Event::OutputFetchingBegin(group_id));
 
-            let mut vectors = transfers.iter()
-                .map(|t| (vec![0u8; t.length as usize], t.offset))
-                .collect::<Vec<_>>();
+            let mut vectors = Vec::with_capacity(transfers.len());
+
+            for (key, transfer) in transfers {
+                vectors.push((vec![0u8; transfer.length as usize], transfer.offset, key));
+            }
 
             let copy_result = {
                 let mut memory_transfer = MemoryTransfer::default();
-                for ((vector, offset), dpu) in vectors.iter_mut().zip(&group.dpus) {
+                for ((vector, offset, _), dpu) in vectors.iter_mut().zip(&group.dpus) {
                     monitoring.record(Event::OutputFetchingInfo { dpu: dpu.clone(), offset: *offset, length: vector.len() as u32});
                     memory_transfer.add_in_place(dpu.clone(), *offset, vector.as_mut_slice());
                 }
@@ -65,8 +67,8 @@ impl <M: EventMonitor + Send + 'static> OutputFetcher<M> {
 
             match copy_result {
                 Ok(_) => {
-                    for (result, _) in vectors {
-                        self.output_sender.send(Ok(result)).unwrap();
+                    for (result, _, key) in vectors {
+                        self.output_sender.send(Ok((key, result))).unwrap();
                     }
                     self.group_sender.send(group);
                 },

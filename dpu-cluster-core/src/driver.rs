@@ -10,11 +10,13 @@ use view::View;
 use dpu_sys::DpuDebugContext;
 use memory::MemoryTransfer;
 use memory::MemoryTransferRankEntry;
+use dpu_sys::DpuTarget;
 
 #[derive(Debug)]
 pub struct Driver {
     rank_handler: RankHandler,
     pub nr_of_ranks: u8,
+    pub target: DpuTarget,
     pub rank_description: DpuRankDescription
 }
 
@@ -99,11 +101,11 @@ impl Mergeable for RunStatus {
 }
 
 impl Driver {
-    pub fn new(ranks: Vec<DpuRank>, rank_description: DpuRankDescription) -> Self {
+    pub fn new(ranks: Vec<DpuRank>, rank_description: DpuRankDescription, target: DpuTarget) -> Self {
         let nr_of_ranks = ranks.len() as u8;
         let rank_handler = RankHandler { ranks };
 
-        Driver { rank_handler, nr_of_ranks, rank_description }
+        Driver { rank_handler, nr_of_ranks, rank_description, target }
     }
 
     pub fn nr_of_dpus(&self) -> usize {

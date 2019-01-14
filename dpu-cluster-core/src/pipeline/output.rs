@@ -1,20 +1,20 @@
 use pipeline::OutputResult;
 use pipeline::pipeline::Pipeline;
 
-pub struct Output {
-    pipeline: Pipeline
+pub struct Output<K> {
+    pipeline: Pipeline<K>
 }
 
-impl Iterator for Output {
-    type Item = OutputResult;
+impl <K> Iterator for Output<K> {
+    type Item = OutputResult<K>;
 
     fn next(&mut self) -> Option<<Self as Iterator>::Item> {
         self.pipeline.output_receiver.iter().next()
     }
 }
 
-impl Output {
-    pub fn new(pipeline: Pipeline) -> Self {
+impl <K> Output<K> {
+    pub fn new(pipeline: Pipeline<K>) -> Self {
         Output { pipeline }
     }
 }

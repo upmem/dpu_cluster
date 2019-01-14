@@ -37,7 +37,7 @@ impl Cluster {
             }
         }
 
-        let driver = Driver::new(ranks, rank_description);
+        let driver = Driver::new(ranks, rank_description, config.target);
 
         let workers = Mapping::new(dpu_ids);
 
@@ -54,6 +54,10 @@ impl Cluster {
             self.driver.rank_description.topology.nr_of_control_interfaces,
             self.driver.rank_description.topology.nr_of_dpus_per_control_interface
         )
+    }
+
+    pub fn target(&self) -> DpuTarget {
+        self.driver.target.clone()
     }
 }
 

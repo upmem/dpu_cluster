@@ -20,25 +20,27 @@ use pipeline::monitoring::Event;
 use driver::Driver;
 use std::time::Duration;
 
-pub struct ExecutionTracker<M: EventMonitor + Send + 'static> {
+pub struct ExecutionTracker<K: Send + 'static, M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
-    job_receiver: Receiver<GroupJob>,
-    finish_sender: Sender<GroupJob>,
-    output_sender: Sender<OutputResult>,
+    job_receiver: Receiver<GroupJob<K>>,
+    finish_sender: Sender<GroupJob<K>>,
+    output_sender: Sender<OutputResult<K>>,
+    sleep_duration: Option<Duration>,
     monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <M: EventMonitor + Send + 'static> ExecutionTracker<M> {
+impl <K: Send + 'static, M: EventMonitor + Send + 'static> ExecutionTracker<K, M> {
     pub fn new(cluster: Arc<Cluster>,
-               job_receiver: Receiver<GroupJob>,
-               finish_sender: Sender<GroupJob>,
-               output_sender: Sender<OutputResult>,
+               job_receiver: Receiver<GroupJob<K>>,
+               finish_sender: Sender<GroupJob<K>>,
+               output_sender: Sender<OutputResult<K>>,
+               sleep_duration: Option<Duration>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Tracker);
 
-        ExecutionTracker { cluster, job_receiver, finish_sender, output_sender, monitoring, shutdown }
+        ExecutionTracker { cluster, job_receiver, finish_sender, output_sender, sleep_duration, monitoring, shutdown }
     }
 
     pub fn launch(self) -> ThreadHandle {
@@ -95,8 +97,10 @@ impl <M: EventMonitor + Send + 'static> ExecutionTracker<M> {
 
             jobs = new_jobs;
 
-            // todo: sleep duration should be a config parameter
-            thread::sleep(Duration::from_millis(10))
+            // todo: can we avoid destructuring self.sleep_duration at each iteration?
+            if let Some(sleep_duration) = self.sleep_duration {
+                thread::sleep(sleep_duration);
+            }
         }
     }
 }

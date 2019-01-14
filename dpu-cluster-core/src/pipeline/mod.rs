@@ -23,7 +23,7 @@ impl From<ClusterError> for PipelineError {
     }
 }
 
-type OutputResult = Result<Vec<u8>, PipelineError>;
+type OutputResult<K> = Result<(K, Vec<u8>), PipelineError>;
 type ThreadHandle = Option<JoinHandle<()>>;
 
 type GroupId = u32;

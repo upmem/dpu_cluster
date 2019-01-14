@@ -20,29 +20,30 @@ use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
 
-pub struct InputLoader<I, M: EventMonitor + Send + 'static> {
+pub struct InputLoader<I, K, M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
-    get_transfers: Box<Fn(I) -> MemoryTransfers + Send>,
+    get_transfers: Box<Fn(I) -> MemoryTransfers<K> + Send>,
     groups: Vec<DpuGroup>,
     input_receiver: Receiver<I>,
     group_receiver: Receiver<DpuGroup>,
-    job_sender: Sender<GroupJob>,
-    output_sender: Sender<OutputResult>,
+    job_sender: Sender<GroupJob<K>>,
+    output_sender: Sender<OutputResult<K>>,
     monitoring: M,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <I, M> InputLoader<I, M>
+impl <I, K, M> InputLoader<I, K, M>
     where I: Send + 'static,
+          K: Send + 'static,
           M: EventMonitor + Send + 'static
 {
     pub fn new(cluster: Arc<Cluster>,
-               get_transfers: Box<Fn(I) -> MemoryTransfers + Send>,
+               get_transfers: Box<Fn(I) -> MemoryTransfers<K> + Send>,
                groups: Vec<DpuGroup>,
                input_receiver: Receiver<I>,
                group_receiver: Receiver<DpuGroup>,
-               job_sender: Sender<GroupJob>,
-               output_sender: Sender<OutputResult>,
+               job_sender: Sender<GroupJob<K>>,
+               output_sender: Sender<OutputResult<K>>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Loader);
@@ -73,7 +74,7 @@ impl <I, M> InputLoader<I, M>
 
             let transfers = (self.get_transfers)(item);
             inputs.push(transfers.inputs);
-            outputs.push(transfers.output);
+            outputs.push((transfers.key, transfers.output));
 
             while inputs.len() != group_size {
                 match iterator.next() {
@@ -81,7 +82,7 @@ impl <I, M> InputLoader<I, M>
                     Some(item) => {
                         let transfers = (self.get_transfers)(item);
                         inputs.push(transfers.inputs);
-                        outputs.push(transfers.output);
+                        outputs.push((transfers.key, transfers.output));
                     }
                 }
             }
@@ -114,8 +115,8 @@ fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGro
     }
 }
 
-fn load_input_chunk(driver: &Driver, group: DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>,
-                    outs: Vec<OutputMemoryTransfer>, job_sender: &Sender<GroupJob>, output_sender: &Sender<OutputResult>) {
+fn load_input_chunk<K>(driver: &Driver, group: DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>,
+                    outs: Vec<(K, OutputMemoryTransfer)>, job_sender: &Sender<GroupJob<K>>, output_sender: &Sender<OutputResult<K>>) {
     match chunk.iter().max_by_key(|t| t.len()).map(|t| t.len()) {
         None => (),
         Some(max_len) =>
