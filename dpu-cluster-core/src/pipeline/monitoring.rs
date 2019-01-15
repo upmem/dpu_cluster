@@ -67,7 +67,7 @@ impl EmptyEventMonitor {
 }
 
 impl EventMonitor for EmptyEventMonitor {
-    fn set_process(&mut self, process: Process) { }
+    fn set_process(&mut self, _: Process) { }
 
-    fn record(&mut self, event: Event) { }
+    fn record(&mut self, _: Event) { }
 }

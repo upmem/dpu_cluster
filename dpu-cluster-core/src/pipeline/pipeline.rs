@@ -38,12 +38,12 @@ impl <K: Send + 'static> Pipeline<K> {
 
         let (nr_ranks, nr_slices, nr_dpus) = cluster.topology();
 
-        // todo: sync channel bound should be a config parameter
+        // todo: input sync channel bound should be a config parameter
         let (input_tx, input_rx) = sync_channel(2 * (nr_slices as usize));
-        let (output_tx, output_rx) = channel();
+        // todo: output sync channel bound should be a config parameter
+        let (output_tx, output_rx) = sync_channel(2 * (nr_slices as usize));
         let (group_tx, group_rx) = channel();
         let (incoming_job_tx, incoming_job_rx) = channel();
-        // todo: use sync channel for this channel to manage slow post processing
         let (finished_job_tx, finished_job_rx) = channel();
 
         let groups = {

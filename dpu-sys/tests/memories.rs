@@ -75,7 +75,7 @@ fn can_access_wrams() -> Result<(), DpuError> {
 fn can_handle_wram_error() -> Result<(), DpuError> {
     let rank = allocate_rank()?;
     let description = rank.get_description()?;
-    let input = vec![0x0ABCDEF012345678, 0xFFFFFFFFFFFFFFFF, 0xAAAAAAAAAAAAAAAA];
+    let input = vec![0x0ABCDEF0, 0xFFFFFFFF, 0xAAAAAAAA];
 
     if let Ok(_) = rank.copy_to_wrams(input.as_ptr(), input.len() as u32, description.memories.wram_size) {
         panic!("should not be able to copy to wrams after the end of the memory")

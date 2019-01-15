@@ -13,20 +13,22 @@ use cluster::Cluster;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
+use std::sync::mpsc::SyncSender;
 
 pub struct OutputFetcher<K: Send + 'static, M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
     finish_receiver: Receiver<GroupJob<K>>,
-    output_sender: Sender<OutputResult<K>>,
+    output_sender: SyncSender<OutputResult<K>>,
     group_sender: Sender<DpuGroup>,
     monitoring: M,
+    // todo: use or remove
     shutdown: Arc<Mutex<bool>>
 }
 
 impl <K: Send + 'static, M: EventMonitor + Send + 'static> OutputFetcher<K, M> {
     pub fn new(cluster: Arc<Cluster>,
                finish_receiver: Receiver<GroupJob<K>>,
-               output_sender: Sender<OutputResult<K>>,
+               output_sender: SyncSender<OutputResult<K>>,
                group_sender: Sender<DpuGroup>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
@@ -67,10 +69,10 @@ impl <K: Send + 'static, M: EventMonitor + Send + 'static> OutputFetcher<K, M> {
 
             match copy_result {
                 Ok(_) => {
+                    self.group_sender.send(group);
                     for (result, _, key) in vectors {
                         self.output_sender.send(Ok((key, result))).unwrap();
                     }
-                    self.group_sender.send(group);
                 },
                 Err(err) => {
                     self.output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();

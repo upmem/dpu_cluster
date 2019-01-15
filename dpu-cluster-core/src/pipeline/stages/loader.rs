@@ -19,6 +19,7 @@ use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
+use std::sync::mpsc::SyncSender;
 
 pub struct InputLoader<I, K, M: EventMonitor + Send + 'static> {
     cluster: Arc<Cluster>,
@@ -27,8 +28,9 @@ pub struct InputLoader<I, K, M: EventMonitor + Send + 'static> {
     input_receiver: Receiver<I>,
     group_receiver: Receiver<DpuGroup>,
     job_sender: Sender<GroupJob<K>>,
-    output_sender: Sender<OutputResult<K>>,
+    output_sender: SyncSender<OutputResult<K>>,
     monitoring: M,
+    // todo: use or remove
     shutdown: Arc<Mutex<bool>>
 }
 
@@ -43,7 +45,7 @@ impl <I, K, M> InputLoader<I, K, M>
                input_receiver: Receiver<I>,
                group_receiver: Receiver<DpuGroup>,
                job_sender: Sender<GroupJob<K>>,
-               output_sender: Sender<OutputResult<K>>,
+               output_sender: SyncSender<OutputResult<K>>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Loader);
@@ -116,8 +118,9 @@ fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGro
 }
 
 fn load_input_chunk<K>(driver: &Driver, group: DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>,
-                    outs: Vec<(K, OutputMemoryTransfer)>, job_sender: &Sender<GroupJob<K>>, output_sender: &Sender<OutputResult<K>>) {
+                    outs: Vec<(K, OutputMemoryTransfer)>, job_sender: &Sender<GroupJob<K>>, output_sender: &SyncSender<OutputResult<K>>) {
     match chunk.iter().max_by_key(|t| t.len()).map(|t| t.len()) {
+        // the None case (empty group) never happens
         None => (),
         Some(max_len) =>
             match do_memory_transfers(driver, &group, chunk, max_len) {

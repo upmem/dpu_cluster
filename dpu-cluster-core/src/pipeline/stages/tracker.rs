@@ -1,6 +1,7 @@
 use std::sync::mpsc::Receiver;
 use pipeline::stages::DpuGroup;
 use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 use pipeline::OutputResult;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -24,9 +25,10 @@ pub struct ExecutionTracker<K: Send + 'static, M: EventMonitor + Send + 'static>
     cluster: Arc<Cluster>,
     job_receiver: Receiver<GroupJob<K>>,
     finish_sender: Sender<GroupJob<K>>,
-    output_sender: Sender<OutputResult<K>>,
+    output_sender: SyncSender<OutputResult<K>>,
     sleep_duration: Option<Duration>,
     monitoring: M,
+    // todo: use or remove
     shutdown: Arc<Mutex<bool>>
 }
 
@@ -34,7 +36,7 @@ impl <K: Send + 'static, M: EventMonitor + Send + 'static> ExecutionTracker<K, M
     pub fn new(cluster: Arc<Cluster>,
                job_receiver: Receiver<GroupJob<K>>,
                finish_sender: Sender<GroupJob<K>>,
-               output_sender: Sender<OutputResult<K>>,
+               output_sender: SyncSender<OutputResult<K>>,
                sleep_duration: Option<Duration>,
                mut monitoring: M,
                shutdown: Arc<Mutex<bool>>) -> Self {
@@ -97,7 +99,7 @@ impl <K: Send + 'static, M: EventMonitor + Send + 'static> ExecutionTracker<K, M
 
             jobs = new_jobs;
 
-            // todo: can we avoid destructuring self.sleep_duration at each iteration?
+            // todo: can we avoid destructuring self.sleep_duration at each iteration? (not costly at all, but not needed)
             if let Some(sleep_duration) = self.sleep_duration {
                 thread::sleep(sleep_duration);
             }
