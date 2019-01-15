@@ -133,19 +133,12 @@ impl DpuDebugContext {
     pub fn new(nr_of_threads: u8, nr_of_registers: u8, nr_of_atomic_bits: u32) -> Self {
         let total_nr_of_registers = (nr_of_threads as usize) * (nr_of_registers as usize);
 
-        let mut registers = Vec::with_capacity(total_nr_of_registers);
-        let mut pcs = Vec::with_capacity(nr_of_threads as usize);
-        let mut atomic_register = Vec::with_capacity(nr_of_atomic_bits as usize);
-        let mut zero_flags = Vec::with_capacity(nr_of_threads as usize);
-        let mut carry_flags = Vec::with_capacity(nr_of_threads as usize);
-        let mut scheduling = Vec::with_capacity(nr_of_threads as usize);
-
-        registers.resize(total_nr_of_registers, 0);
-        pcs.resize(nr_of_threads as usize, 0u16);
-        atomic_register.resize(nr_of_atomic_bits as usize, false);
-        zero_flags.resize(nr_of_threads as usize, false);
-        carry_flags.resize(nr_of_threads as usize, false);
-        scheduling.resize(nr_of_threads as usize, 0xFFu8);
+        let mut registers = vec![0; total_nr_of_registers];
+        let mut pcs = vec![0u16; nr_of_threads as usize];
+        let mut atomic_register = vec![false; nr_of_atomic_bits as usize];
+        let mut zero_flags = vec![false; nr_of_threads as usize];
+        let mut carry_flags = vec![false; nr_of_threads as usize];
+        let mut scheduling = vec![0xFFu8; nr_of_threads as usize];
 
         let raw = RawDpuDebugContext {
             registers: registers.as_mut_ptr(),

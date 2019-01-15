@@ -24,8 +24,7 @@ fn can_access_irams() -> Result<(), DpuError> {
 
     for slice_id in 0..description.topology.nr_of_control_interfaces {
         for member_id in 0..description.topology.nr_of_dpus_per_control_interface {
-            let mut output = Vec::with_capacity(input.len());
-            output.resize(input.len(), 0);
+            let mut output = vec![0; input.len()];
             rank.copy_from_iram(slice_id, member_id, output.as_mut_ptr(), output.len() as u16, 10)?;
             assert_eq!(0x0000DEF012345678, output[0]);
             assert_eq!(0x0000FFFFFFFFFFFF, output[1]);
@@ -59,8 +58,7 @@ fn can_access_wrams() -> Result<(), DpuError> {
 
     for slice_id in 0..description.topology.nr_of_control_interfaces {
         for member_id in 0..description.topology.nr_of_dpus_per_control_interface {
-            let mut output = Vec::with_capacity(input.len());
-            output.resize(input.len(), 0);
+            let mut output = vec![0; input.len()];
             rank.copy_from_wram(slice_id, member_id, output.as_mut_ptr(), output.len() as u32, 4)?;
             assert_eq!(0x12345678, output[0]);
             assert_eq!(0xFFFFFFFF, output[1]);
@@ -91,10 +89,8 @@ fn can_access_mrams() -> Result<(), DpuError> {
     let input_matrix = DpuRankTransferMatrix::allocate_for(&rank)?;
     let output_matrix = DpuRankTransferMatrix::allocate_for(&rank)?;
     let mut input = vec![0xAA, 0xBB, 0xCC, 0x12, 0x00, 0x42, 0x2A];
-    let mut first_output = Vec::with_capacity(input.len());
-    let mut second_output = Vec::with_capacity(input.len());
-    first_output.resize(input.len(), 0);
-    second_output.resize(input.len(), 0);
+    let mut first_output = vec![0; input.len()];
+    let mut second_output = vec![0; input.len()];
 
     input_matrix.add_dpu(0, 0, input.as_mut_ptr(), input.len() as u32, 2, 0);
     input_matrix.add_dpu(0, 1, input.as_mut_ptr(), input.len() as u32, 2, 0);
