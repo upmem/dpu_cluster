@@ -23,51 +23,63 @@ pub enum Event {
 
 #[derive(Debug, Clone)]
 pub enum Process {
+    Pipeline,
     Initializer,
+    Mapper,
     Loader,
     Tracker,
     Fetcher
 }
 
-pub trait EventMonitor {
-    fn set_process(&mut self, process: Process);
-    fn record(&mut self, event: Event);
-}
-
 #[derive(Clone)]
-pub struct StdoutEventMonitor {
-    process: Option<Process>
+pub enum RecordPolicy {
+    Disabled,
+    Stdout
 }
 
-impl StdoutEventMonitor {
-    pub fn new() -> Self {
-        StdoutEventMonitor { process: Default::default() }
+impl Default for Process {
+    fn default() -> Self {
+        Process::Pipeline
     }
 }
 
-impl EventMonitor for StdoutEventMonitor {
-    fn set_process(&mut self, process: Process) {
-        self.process = Some(process);
-    }
-
-    fn record(&mut self, event: Event) {
-        let process_str = self.process.as_ref().map_or("".to_string(), |p| format!("{:?}", p));
-
-        println!("[{}][{}] {:?}", Local::now().format("%F %T%.f").to_string(), process_str, event);
+impl Default for RecordPolicy {
+    fn default() -> Self {
+        RecordPolicy::Disabled
     }
 }
 
 #[derive(Clone)]
-pub struct EmptyEventMonitor;
+pub struct EventMonitor {
+    process: Process,
+    policy: RecordPolicy
+}
 
-impl EmptyEventMonitor {
+impl EventMonitor {
     pub fn new() -> Self {
-        EmptyEventMonitor { }
+        EventMonitor { process: Default::default(), policy: Default::default() }
+    }
+
+    pub fn set_process(&mut self, process: Process) {
+        self.process = process;
+    }
+
+    pub fn set_policy(&mut self, policy: RecordPolicy) {
+        self.policy = policy;
+    }
+
+    pub fn record(&self, event: Event) {
+        match self.policy {
+            RecordPolicy::Disabled => {},
+            RecordPolicy::Stdout => {
+                println!("[{}][{:?}] {:?}", Local::now().format("%F %T%.f").to_string(), self.process, event);
+            },
+        }
     }
 }
 
-impl EventMonitor for EmptyEventMonitor {
-    fn set_process(&mut self, _: Process) { }
-
-    fn record(&mut self, _: Event) { }
+impl Default for EventMonitor {
+    fn default() -> Self {
+        EventMonitor::new()
+    }
 }

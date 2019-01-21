@@ -15,7 +15,6 @@ use dpu_cluster_core::pipeline::transfer::MemoryTransfers;
 use dpu_cluster_core::pipeline::transfer::OutputMemoryTransfer;
 use dpu_cluster_core::pipeline::transfer::InputMemoryTransfer;
 use dpu_cluster_core::error::ClusterError;
-use dpu_cluster_core::pipeline::monitoring::StdoutEventMonitor;
 
 const NB_WORD_MAX: u32 = 7450;
 
@@ -53,9 +52,11 @@ fn main() -> Result<(), AppError> {
         .enumerate()
         .map(move |(idx, filename)| extract_inputs(filename, mram_size, idx).unwrap());
 
-    let outputs = Plan::new(inputs, map_transfers, StdoutEventMonitor::new())
+    let outputs = Plan::from(inputs)
+        .for_simple_model(map_transfers)
+        .driving(cluster)
         .running(&program)
-        .build(cluster)?;
+        .build()?;
 
     for output in outputs {
         let (idx, output) = output?;

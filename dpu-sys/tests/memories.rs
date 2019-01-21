@@ -85,7 +85,6 @@ fn can_handle_wram_error() -> Result<(), DpuError> {
 #[test]
 fn can_access_mrams() -> Result<(), DpuError> {
     let rank = allocate_rank()?;
-    let description = rank.get_description()?;
     let input_matrix = DpuRankTransferMatrix::allocate_for(&rank)?;
     let output_matrix = DpuRankTransferMatrix::allocate_for(&rank)?;
     let mut input = vec![0xAA, 0xBB, 0xCC, 0x12, 0x00, 0x42, 0x2A];

@@ -6,43 +6,44 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use memory::MemoryTransfer;
 use pipeline::PipelineError;
-use pipeline::ThreadHandle;
-use std::thread;
 use pipeline::stages::GroupJob;
 use cluster::Cluster;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use std::sync::mpsc::SyncSender;
+use pipeline::stages::Stage;
 
-pub struct OutputFetcher<K: Send + 'static, M: EventMonitor + Send + 'static> {
+pub struct OutputFetcher<InputHandle> {
     cluster: Arc<Cluster>,
-    finish_receiver: Receiver<GroupJob<K>>,
-    output_sender: SyncSender<OutputResult<K>>,
+    finish_receiver: Receiver<GroupJob<InputHandle>>,
+    output_sender: SyncSender<OutputResult<InputHandle>>,
     group_sender: Sender<DpuGroup>,
-    monitoring: M,
+    monitoring: EventMonitor,
     // todo: use or remove
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <K: Send + 'static, M: EventMonitor + Send + 'static> OutputFetcher<K, M> {
+impl <InputHandle> OutputFetcher<InputHandle>
+    where InputHandle: Send + 'static
+{
     pub fn new(cluster: Arc<Cluster>,
-               finish_receiver: Receiver<GroupJob<K>>,
-               output_sender: SyncSender<OutputResult<K>>,
+               finish_receiver: Receiver<GroupJob<InputHandle>>,
+               output_sender: SyncSender<OutputResult<InputHandle>>,
                group_sender: Sender<DpuGroup>,
-               mut monitoring: M,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Fetcher);
 
         OutputFetcher { cluster, finish_receiver, output_sender, group_sender, monitoring, shutdown }
     }
+}
 
-    pub fn launch(self) -> ThreadHandle {
-        Some(thread::spawn(|| self.run()))
-    }
-
+impl <InputHandle> Stage for OutputFetcher<InputHandle>
+    where InputHandle: Send + 'static
+{
     fn run(self) {
-        let mut monitoring = self.monitoring;
+        let monitoring = self.monitoring;
 
         monitoring.record(Event::ProcessBegin);
 
@@ -52,8 +53,8 @@ impl <K: Send + 'static, M: EventMonitor + Send + 'static> OutputFetcher<K, M> {
 
             let mut vectors = Vec::with_capacity(transfers.len());
 
-            for (key, transfer) in transfers {
-                vectors.push((vec![0u8; transfer.length as usize], transfer.offset, key));
+            for (handle, transfer) in transfers {
+                vectors.push((vec![0u8; transfer.length as usize], transfer.offset, handle));
             }
 
             let copy_result = {
@@ -70,8 +71,8 @@ impl <K: Send + 'static, M: EventMonitor + Send + 'static> OutputFetcher<K, M> {
             match copy_result {
                 Ok(_) => {
                     self.group_sender.send(group);
-                    for (result, _, key) in vectors {
-                        self.output_sender.send(Ok((key, result))).unwrap();
+                    for (result, _, handle) in vectors {
+                        self.output_sender.send(Ok((handle, result))).unwrap();
                     }
                 },
                 Err(err) => {

@@ -1,6 +1,3 @@
-use pipeline::ThreadHandle;
-use std::thread;
-use pipeline::transfer::MemoryTransfers;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use pipeline::transfer::OutputMemoryTransfer;
@@ -20,129 +17,85 @@ use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
 use std::sync::mpsc::SyncSender;
+use pipeline::stages::Stage;
 
-pub struct InputLoader<I, K, M: EventMonitor + Send + 'static> {
+pub struct InputLoader<InputHandle> {
     cluster: Arc<Cluster>,
-    get_transfers: Box<Fn(I) -> MemoryTransfers<K> + Send>,
-    groups: Vec<DpuGroup>,
-    input_receiver: Receiver<I>,
-    group_receiver: Receiver<DpuGroup>,
-    job_sender: Sender<GroupJob<K>>,
-    output_sender: SyncSender<OutputResult<K>>,
-    monitoring: M,
+    transfer_receiver: Receiver<(DpuGroup, Vec<Vec<InputMemoryTransfer>>, Vec<(InputHandle, OutputMemoryTransfer)>)>,
+    job_sender: Sender<GroupJob<InputHandle>>,
+    output_sender: SyncSender<OutputResult<InputHandle>>,
+    monitoring: EventMonitor,
     // todo: use or remove
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <I, K, M> InputLoader<I, K, M>
-    where I: Send + 'static,
-          K: Send + 'static,
-          M: EventMonitor + Send + 'static
+impl <InputHandle> InputLoader<InputHandle>
+    where InputHandle: Send + 'static
 {
     pub fn new(cluster: Arc<Cluster>,
-               get_transfers: Box<Fn(I) -> MemoryTransfers<K> + Send>,
-               groups: Vec<DpuGroup>,
-               input_receiver: Receiver<I>,
-               group_receiver: Receiver<DpuGroup>,
-               job_sender: Sender<GroupJob<K>>,
-               output_sender: SyncSender<OutputResult<K>>,
-               mut monitoring: M,
+               transfer_receiver: Receiver<(DpuGroup, Vec<Vec<InputMemoryTransfer>>, Vec<(InputHandle, OutputMemoryTransfer)>)>,
+               job_sender: Sender<GroupJob<InputHandle>>,
+               output_sender: SyncSender<OutputResult<InputHandle>>,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Loader);
 
-        InputLoader { cluster, get_transfers, groups, input_receiver, group_receiver, job_sender, output_sender, monitoring, shutdown }
+        InputLoader { cluster, transfer_receiver, job_sender, output_sender, monitoring, shutdown }
     }
+}
 
-    pub fn launch(self) -> ThreadHandle {
-        Some(thread::spawn(|| self.run()))
-    }
-
-    fn run(mut self) {
-        let mut monitoring = self.monitoring;
+impl <InputHandle> Stage for InputLoader<InputHandle>
+    where InputHandle: Send + 'static
+{
+    fn run(self) {
+        let monitoring = self.monitoring;
 
         monitoring.record(Event::ProcessBegin);
 
-        let mut iterator = self.input_receiver.iter();
+        let driver = self.cluster.driver();
 
-        while let Some(item) = iterator.next() {
-            monitoring.record(Event::GroupSearchBegin);
-            let group = fetch_next_group(&mut self.groups, &mut self.group_receiver);
+        for (group, inputs, outputs) in self.transfer_receiver {
             let group_id = group.id;
-            monitoring.record(Event::GroupSearchEnd(group_id));
-
-            let group_size = group.dpus.len();
-            let mut inputs = Vec::with_capacity(group_size);
-            let mut outputs = Vec::with_capacity(group_size);
-
-            let transfers = (self.get_transfers)(item);
-            inputs.push(transfers.inputs);
-            outputs.push((transfers.key, transfers.output));
-
-            while inputs.len() != group_size {
-                match iterator.next() {
-                    None => break,
-                    Some(item) => {
-                        let transfers = (self.get_transfers)(item);
-                        inputs.push(transfers.inputs);
-                        outputs.push((transfers.key, transfers.output));
-                    }
-                }
-            }
 
             monitoring.record(Event::GroupLoadingBegin(group_id));
-            load_input_chunk(self.cluster.driver(), group, inputs, outputs, &self.job_sender, &self.output_sender);
+
+            let is_ok = load_input_chunk(driver, &group, inputs, &self.output_sender);
+
             monitoring.record(Event::GroupLoadingEnd(group_id));
-        }
 
-        monitoring.record(Event::ProcessEnd);
-    }
-}
-
-fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGroup>) -> DpuGroup {
-    match groups.pop() {
-        Some(grp) => grp,
-        None => {
-            // todo: fix the issue where no group may be sent because all have failed
-            let grp = group_receiver.recv().unwrap();
-
-            loop {
-                match group_receiver.try_recv() {
-                    Ok(other_group) => groups.push(other_group),
-                    Err(_) => break,
-                }
+            if is_ok {
+                self.job_sender.send((group, outputs)).unwrap();
             }
-
-            grp
-        },
+        }
     }
 }
 
-fn load_input_chunk<K>(driver: &Driver, group: DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>,
-                    outs: Vec<(K, OutputMemoryTransfer)>, job_sender: &Sender<GroupJob<K>>, output_sender: &SyncSender<OutputResult<K>>) {
+fn load_input_chunk<T>(driver: &Driver, group: &DpuGroup, chunk: Vec<Vec<InputMemoryTransfer>>,
+                       output_sender: &SyncSender<OutputResult<T>>) -> bool {
     match chunk.iter().max_by_key(|t| t.len()).map(|t| t.len()) {
         // the None case (empty group) never happens
-        None => (),
+        None => true,
         Some(max_len) =>
-            match do_memory_transfers(driver, &group, chunk, max_len) {
+            match do_memory_transfers(driver, group, chunk, max_len) {
                 Err(err) => {
-                    output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap()
+                    output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
+                    false
                 },
                 Ok(_) => {
-                    let mut fault = false;
+                    let mut is_ok = true;
+
                     for dpu in &group.dpus {
                         match driver.boot(&View::one(dpu.clone())) {
                             Ok(_) => (),
                             Err(err) => {
                                 output_sender.send(Err(PipelineError::InfrastructureError(err))).unwrap();
-                                fault = true;
+                                is_ok = false;
                                 break;
                             }
                         }
                     }
 
-                    if !fault {
-                        job_sender.send((group, outs)).unwrap();
-                    }
+                    is_ok
                 },
             },
     }

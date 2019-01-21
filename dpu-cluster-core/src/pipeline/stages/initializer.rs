@@ -1,36 +1,38 @@
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::sync::Mutex;
-use pipeline::ThreadHandle;
-use std::thread;
 use pipeline::monitoring::EventMonitor;
 use pipeline::monitoring::Event;
 use pipeline::monitoring::Process;
+use pipeline::stages::Stage;
 
-pub struct InputInitializer<I, IT: Iterator<Item=I> + Send, M: EventMonitor + Send + 'static> {
-    iterator: Box<IT>,
-    sender: SyncSender<I>,
-    monitoring: M,
+pub struct InputInitializer<InputItem, InputIterator> {
+    iterator: Box<InputIterator>,
+    sender: SyncSender<InputItem>,
+    monitoring: EventMonitor,
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <I: Send + 'static, IT: Iterator<Item=I> + Send + 'static, M: EventMonitor + Send + 'static> InputInitializer<I, IT, M>
+impl <InputItem, InputIterator> InputInitializer<InputItem, InputIterator>
+    where InputItem: Send + 'static,
+          InputIterator: Iterator<Item=InputItem> + Send + 'static
 {
-    pub fn new(iterator: Box<IT>,
-               sender: SyncSender<I>,
-               mut monitoring: M,
+    pub fn new(iterator: Box<InputIterator>,
+               sender: SyncSender<InputItem>,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Initializer);
 
         InputInitializer { iterator, sender, monitoring, shutdown }
     }
+}
 
-    pub fn launch(self) -> ThreadHandle {
-        Some(thread::spawn(|| self.run()))
-    }
-
+impl <InputItem, InputIterator> Stage for InputInitializer<InputItem, InputIterator>
+    where InputItem: Send + 'static,
+          InputIterator: Iterator<Item=InputItem> + Send + 'static
+{
     fn run(self) {
-        let mut monitoring = self.monitoring;
+        let monitoring = self.monitoring;
 
         monitoring.record(Event::ProcessBegin);
 

@@ -13,13 +13,27 @@ mod pipeline;
 
 #[derive(Debug)]
 pub enum PipelineError {
+    UndefinedCluster,
     InfrastructureError(ClusterError),
-    ExecutionError(DpuId)
+    ExecutionError(DpuId),
+    // todo: add fragment id info
+    UnknownFragmentId
 }
 
 impl From<ClusterError> for PipelineError {
     fn from(err: ClusterError) -> Self {
         PipelineError::InfrastructureError(err)
+    }
+}
+
+pub enum GroupPolicy {
+    Dpu,
+    Slice
+}
+
+impl Default for GroupPolicy {
+    fn default() -> Self {
+        GroupPolicy::Slice
     }
 }
 

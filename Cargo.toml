@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "dpu-cluster-frontend",
     "dpu-cluster-core",
     "dpu-sys",
 ]

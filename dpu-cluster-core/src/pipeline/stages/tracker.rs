@@ -11,7 +11,6 @@ use error::ClusterError;
 use view::View;
 use driver::Mergeable;
 use pipeline::PipelineError;
-use pipeline::ThreadHandle;
 use std::thread;
 use pipeline::stages::GroupJob;
 use cluster::Cluster;
@@ -20,37 +19,40 @@ use pipeline::monitoring::Process;
 use pipeline::monitoring::Event;
 use driver::Driver;
 use std::time::Duration;
+use pipeline::stages::Stage;
 
-pub struct ExecutionTracker<K: Send + 'static, M: EventMonitor + Send + 'static> {
+pub struct ExecutionTracker<InputHandle> {
     cluster: Arc<Cluster>,
-    job_receiver: Receiver<GroupJob<K>>,
-    finish_sender: Sender<GroupJob<K>>,
-    output_sender: SyncSender<OutputResult<K>>,
+    job_receiver: Receiver<GroupJob<InputHandle>>,
+    finish_sender: Sender<GroupJob<InputHandle>>,
+    output_sender: SyncSender<OutputResult<InputHandle>>,
     sleep_duration: Option<Duration>,
-    monitoring: M,
+    monitoring: EventMonitor,
     // todo: use or remove
     shutdown: Arc<Mutex<bool>>
 }
 
-impl <K: Send + 'static, M: EventMonitor + Send + 'static> ExecutionTracker<K, M> {
+impl <InputHandle> ExecutionTracker<InputHandle>
+    where InputHandle: Send + 'static
+{
     pub fn new(cluster: Arc<Cluster>,
-               job_receiver: Receiver<GroupJob<K>>,
-               finish_sender: Sender<GroupJob<K>>,
-               output_sender: SyncSender<OutputResult<K>>,
+               job_receiver: Receiver<GroupJob<InputHandle>>,
+               finish_sender: Sender<GroupJob<InputHandle>>,
+               output_sender: SyncSender<OutputResult<InputHandle>>,
                sleep_duration: Option<Duration>,
-               mut monitoring: M,
+               mut monitoring: EventMonitor,
                shutdown: Arc<Mutex<bool>>) -> Self {
         monitoring.set_process(Process::Tracker);
 
         ExecutionTracker { cluster, job_receiver, finish_sender, output_sender, sleep_duration, monitoring, shutdown }
     }
+}
 
-    pub fn launch(self) -> ThreadHandle {
-        Some(thread::spawn(|| self.run()))
-    }
-
+impl <InputHandle> Stage for ExecutionTracker<InputHandle>
+    where InputHandle: Send + 'static
+{
     fn run(self) {
-        let mut monitoring = self.monitoring;
+        let monitoring = self.monitoring;
 
         monitoring.record(Event::ProcessBegin);
 
