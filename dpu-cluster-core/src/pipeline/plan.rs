@@ -112,7 +112,7 @@ impl <'a, InputItem, InputIterator, InputHandle, TransferFn> Plan<'a, SimpleMode
         Self::build_init(&cluster, &self.monitoring, self.program)?;
 
         let pipeline = Pipeline::simple(self.input_iterator, Arc::new(cluster),
-                                        self.model.input_transfers_fn, self.group_policy, self.monitoring);
+                                        self.model.input_transfers_fn, self.group_policy, self.monitoring)?;
 
         Ok(Output::new(pipeline))
     }
@@ -156,7 +156,7 @@ impl <'a, InputItem, InputIterator, InputHandle, TransferFn, PersistentHandle, P
         Self::build_init(&cluster, &self.monitoring, self.program)?;
 
         let pipeline = Pipeline::persistent(self.input_iterator, Arc::new(cluster),
-                                        self.model.input_transfers_fn, self.model.persistent_iterator, self.group_policy, self.monitoring);
+                                        self.model.input_transfers_fn, self.model.persistent_iterator, self.group_policy, self.monitoring)?;
 
         Ok(Output::new(pipeline))
     }

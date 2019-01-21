@@ -59,7 +59,7 @@ impl <InputHandle> Stage for OutputFetcher<InputHandle>
 
             let copy_result = {
                 let mut memory_transfer = MemoryTransfer::default();
-                for ((vector, offset, _), dpu) in vectors.iter_mut().zip(&group.dpus) {
+                for ((vector, offset, _), dpu) in vectors.iter_mut().zip(group.active_dpus()) {
                     monitoring.record(Event::OutputFetchingInfo { dpu: dpu.clone(), offset: *offset, length: vector.len() as u32});
                     memory_transfer.add_in_place(dpu.clone(), *offset, vector.as_mut_slice());
                 }

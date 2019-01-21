@@ -41,7 +41,9 @@ pub struct PersistentMapper<InputItem, InputHandle, FragmentId, FragmentIterator
     cluster: Arc<Cluster>,
     get_transfers: Box<dyn Fn(InputItem) -> (FragmentId, MemoryTransfers<InputHandle>) + Send>,
     output_sender: SyncSender<OutputResult<InputHandle>>,
-    mapping: Box<FragmentIterator>
+    mapping: Box<FragmentIterator>,
+    fragment_map: HashMap<FragmentId, (DpuId, GroupId)>,
+    available_groups: HashMap<GroupId, (DpuGroup, HashMap<DpuId, MemoryTransfers<InputHandle>>)>
 }
 
 impl <I, K> SimpleMapper<I, K>
@@ -87,7 +89,9 @@ impl <I, K, D, IT> PersistentMapper<I, K, D, IT>
             cluster,
             get_transfers,
             output_sender,
-            mapping
+            mapping,
+            fragment_map: Default::default(),
+            available_groups: Default::default(),
         }
     }
 }
@@ -105,7 +109,7 @@ impl <I, K> Stage for SimpleMapper<I, K>
 
         while let Some(item) = iterator.next() {
             monitoring.record(Event::GroupSearchBegin);
-            let group = fetch_next_group(&mut self.base.groups, &mut self.base.group_receiver);
+            let mut group = fetch_next_group(&mut self.base.groups, &mut self.base.group_receiver);
             let group_id = group.id;
             monitoring.record(Event::GroupSearchEnd(group_id));
 
@@ -119,7 +123,11 @@ impl <I, K> Stage for SimpleMapper<I, K>
 
             while inputs.len() != group_size {
                 match iterator.next() {
-                    None => break,
+                    None => {
+                        for (_, is_active) in group.dpus.iter_mut().skip(inputs.len()) {
+                            *is_active = false;
+                        }
+                    },
                     Some(item) => {
                         let transfers = (self.get_transfers)(item);
                         inputs.push(transfers.inputs);
@@ -140,13 +148,17 @@ fn fetch_next_group(groups: &mut Vec<DpuGroup>, group_receiver: &Receiver<DpuGro
         Some(grp) => grp,
         None => {
             // todo: fix the issue where no group may be sent because all have failed
-            let grp = group_receiver.recv().unwrap();
+            let mut grp = group_receiver.recv().unwrap();
 
             loop {
                 match group_receiver.try_recv() {
                     Ok(other_group) => groups.push(other_group),
                     Err(_) => break,
                 }
+            }
+
+            for (_, activity) in grp.dpus.iter_mut() {
+                *activity = true;
             }
 
             grp
@@ -160,55 +172,55 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
           D: Eq + Hash + Send + 'static,
           IT: Iterator<Item=(D, InputMemoryTransfer)> + Send + 'static
 {
-    fn run(mut self) {
-        let monitoring = self.base.monitoring;
-
-        monitoring.record(Event::ProcessBegin);
-
-        let mut waiting_inputs: HashMap<GroupId, HashMap<DpuId, Vec<MemoryTransfers<K>>>> = Default::default();
-        let mut available_groups: HashMap<GroupId, (DpuGroup, HashMap<DpuId, MemoryTransfers<K>>)> = Default::default();
-
-        let mut mapping: HashMap<D, (DpuId, GroupId)> = Default::default();
-
+    fn init(&mut self) -> Result<(), PipelineError> {
         let driver = self.cluster.driver();
 
-        for group in self.base.groups {
+        for mut group in self.base.groups.iter().cloned() {
             let group_id = group.id;
             let mut transfers = Vec::with_capacity(group.dpus.len());
-            let mut used_dpus = Vec::with_capacity(group.dpus.len());
 
-            for dpu in &group.dpus {
+            for (dpu, _) in &group.dpus {
                 match self.mapping.next() {
                     None => break,
                     Some((fragment_id, fragment_transfer)) => {
-                        mapping.insert(fragment_id, (*dpu, group_id));
+                        self.fragment_map.insert(fragment_id, (*dpu, group_id));
                         transfers.push((*dpu, fragment_transfer));
-                        used_dpus.push(*dpu);
                     },
                 }
             }
 
             if !transfers.is_empty() {
+                group.dpus.truncate(transfers.len());
+
                 let mut memory_transfer = MemoryTransfer::default();
 
                 for (dpu, transfer) in transfers.iter_mut() {
                     memory_transfer.add_in_place(*dpu, transfer.offset, transfer.content.as_mut_slice());
                 }
 
-                match driver.copy_to_memory(&mut memory_transfer) {
-                    Ok(_) => { available_groups.insert(group_id, (DpuGroup { id: group_id, dpus: used_dpus }, HashMap::default())); },
-                    Err(_) => unimplemented!(), // todo handle error
-                }
+                driver.copy_to_memory(&mut memory_transfer)?;
+
+                self.available_groups.insert(group_id, (group, HashMap::default()));
             }
         }
+
+        Ok(())
+    }
+
+    fn run(mut self) {
+        let monitoring = self.base.monitoring;
+
+        monitoring.record(Event::ProcessBegin);
+
+        let mut waiting_inputs: HashMap<GroupId, HashMap<DpuId, Vec<MemoryTransfers<K>>>> = Default::default();
 
         for item in self.base.input_receiver {
             let (fragment_id, transfers) = (self.get_transfers)(item);
 
-            match mapping.get(&fragment_id) {
+            match self.fragment_map.get(&fragment_id) {
                 None => self.output_sender.send(Err(PipelineError::UnknownFragmentId)).unwrap(),
                 Some((dpu_id, group_id)) => {
-                    match available_groups.entry(*group_id) {
+                    match self.available_groups.entry(*group_id) {
                         Entry::Occupied(mut group_entry) => {
                             let should_launch = {
                                 let (group, dpus) = group_entry.get_mut();
@@ -247,7 +259,7 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
 
                     match waiting_inputs.get_mut(&group_id) {
                         None => {
-                            available_groups.insert(group_id, (group, HashMap::default()));
+                            self.available_groups.insert(group_id, (group, HashMap::default()));
                         },
                         Some(group_entry) => {
                             let first_entry = extract_first_waiting_input(group_entry);
@@ -255,7 +267,7 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
                             if is_group_complete(&group, &first_entry) {
                                 build_and_launch_group(group, first_entry, &self.base.transfer_sender);
                             } else {
-                                available_groups.insert(group_id, (group, first_entry));
+                                self.available_groups.insert(group_id, (group, first_entry));
                             }
                         },
                     }
@@ -263,7 +275,7 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
             }
         }
 
-        for (_, (group, dpus)) in available_groups {
+        for (_, (group, dpus)) in self.available_groups {
             build_and_launch_group(group, dpus, &self.base.transfer_sender);
         }
 
@@ -292,22 +304,24 @@ fn is_group_complete<T>(group: &DpuGroup, entries: &HashMap<DpuId, T>) -> bool {
     group.dpus.len() == entries.len()
 }
 
-fn build_and_launch_group<K>(group: DpuGroup, mut dpus: HashMap<DpuId, MemoryTransfers<K>>,
+fn build_and_launch_group<K>(mut group: DpuGroup, mut dpus: HashMap<DpuId, MemoryTransfers<K>>,
                              transfer_sender: &Sender<(DpuGroup, Vec<Vec<InputMemoryTransfer>>, Vec<(K, OutputMemoryTransfer)>)>) {
     let group_size = group.dpus.len();
     let mut inputs = Vec::with_capacity(group_size);
     let mut outputs = Vec::with_capacity(group_size);
 
-    for dpu in &group.dpus {
+    for (dpu, is_active) in group.dpus.iter_mut() {
         match dpus.remove(dpu) {
-            None => unimplemented!(), // todo sparse group
+            None => {
+                *is_active = false;
+            },
             Some(transfers) => {
+                *is_active = true;
                 inputs.push(transfers.inputs);
                 outputs.push((transfers.key, transfers.output));
             },
         }
     }
-
 
     transfer_sender.send((group, inputs, outputs)).unwrap();
 }

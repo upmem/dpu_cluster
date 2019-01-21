@@ -22,6 +22,7 @@ use crate::pipeline::GroupPolicy;
 use crate::pipeline::stages::mapper::PersistentMapper;
 use std::hash::Hash;
 use crate::pipeline::transfer::InputMemoryTransfer;
+use crate::pipeline::PipelineError;
 
 pub struct Pipeline<K> {
     pub output_receiver: Receiver<OutputResult<K>>,
@@ -37,7 +38,7 @@ pub struct Pipeline<K> {
 impl <K: Send + 'static> Pipeline<K> {
     // todo factorize simple and persistent?
     pub fn simple<I, F, IT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>,
-                            group_policy: GroupPolicy, monitoring: EventMonitor) -> Self
+                            group_policy: GroupPolicy, monitoring: EventMonitor) -> Result<Self, PipelineError>
         where I: Send + 'static,
               IT: Iterator<Item=I> + Send + 'static,
               F: Fn(I) -> MemoryTransfers<K> + Send + 'static
@@ -66,30 +67,30 @@ impl <K: Send + 'static> Pipeline<K> {
 
         let input_initializer = InputInitializer::new(
             iterator, input_tx, monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let input_mapper = SimpleMapper::new(
             transfers_fn, groups, input_rx, group_rx,
             transfer_tx, monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let input_loader = InputLoader::new(
             cluster.clone(), transfer_rx, incoming_job_tx,
             output_tx.clone(), monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let execution_tracker = ExecutionTracker::new(
             cluster.clone(), incoming_job_rx, finished_job_tx,
             output_tx.clone(), tracker_sleep_duration, monitoring.clone(),
             shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let output_fetcher = OutputFetcher::new(
             cluster.clone(), finished_job_rx, output_tx.clone(),
             group_tx, monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
-        Pipeline {
+        Ok(Pipeline {
             output_receiver: output_rx,
             input_initializer,
             input_mapper,
@@ -97,12 +98,12 @@ impl <K: Send + 'static> Pipeline<K> {
             execution_tracker,
             output_fetcher,
             shutdown
-        }
+        })
     }
 
     pub fn persistent<I, F, IT, D, DIT>(iterator: Box<IT>, cluster: Arc<Cluster>, transfers_fn: Box<F>,
                                            mapping_iterator: Box<DIT>,
-                                           group_policy: GroupPolicy, monitoring: EventMonitor) -> Self
+                                           group_policy: GroupPolicy, monitoring: EventMonitor) -> Result<Self, PipelineError>
         where I: Send + 'static,
               IT: Iterator<Item=I> + Send + 'static,
               F: Fn(I) -> (D, MemoryTransfers<K>) + Send + 'static,
@@ -133,31 +134,31 @@ impl <K: Send + 'static> Pipeline<K> {
 
         let input_initializer = InputInitializer::new(
             iterator, input_tx, monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let input_mapper = PersistentMapper::new(
             transfers_fn, groups, input_rx, group_rx,
             cluster.clone(), transfer_tx, output_tx.clone(),
             mapping_iterator, monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let input_loader = InputLoader::new(
             cluster.clone(), transfer_rx, incoming_job_tx,
             output_tx.clone(), monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let execution_tracker = ExecutionTracker::new(
             cluster.clone(), incoming_job_rx, finished_job_tx,
             output_tx.clone(), tracker_sleep_duration, monitoring.clone(),
             shutdown.clone()
-        ).launch();
+        ).launch()?;
 
         let output_fetcher = OutputFetcher::new(
             cluster.clone(), finished_job_rx, output_tx.clone(),
             group_tx, monitoring.clone(), shutdown.clone()
-        ).launch();
+        ).launch()?;
 
-        Pipeline {
+        Ok(Pipeline {
             output_receiver: output_rx,
             input_initializer,
             input_mapper,
@@ -165,7 +166,7 @@ impl <K: Send + 'static> Pipeline<K> {
             execution_tracker,
             output_fetcher,
             shutdown
-        }
+        })
     }
 }
 
@@ -178,7 +179,7 @@ fn create_groups_from(policy: GroupPolicy, nr_ranks: u8, nr_slices: u8, nr_dpus:
                 for slice_idx in 0..nr_slices {
                     for dpu_idx in 0..nr_dpus {
                         let id = ((rank_idx as u32) * (nr_slices as u32) *  (nr_dpus as u32)) + ((slice_idx as u32) * (nr_dpus as u32)) + (dpu_idx as u32);
-                        let dpus = vec![DpuId::new(rank_idx, slice_idx, dpu_idx)];
+                        let dpus = vec![(DpuId::new(rank_idx, slice_idx, dpu_idx), true)];
                         vec.push(DpuGroup { id, dpus });
                     }
                 }
@@ -194,7 +195,7 @@ fn create_groups_from(policy: GroupPolicy, nr_ranks: u8, nr_slices: u8, nr_dpus:
                     let mut dpus = Vec::with_capacity(nr_slices as usize);
 
                     for slice_idx in 0..nr_slices {
-                        dpus.push(DpuId::new(rank_idx, slice_idx, dpu_idx));
+                        dpus.push((DpuId::new(rank_idx, slice_idx, dpu_idx), true));
                     }
 
                     vec.push(DpuGroup { id: ((rank_idx as u32) * (nr_dpus as u32)) + (dpu_idx as u32), dpus } );

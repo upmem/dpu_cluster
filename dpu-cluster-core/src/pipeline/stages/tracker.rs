@@ -114,7 +114,7 @@ fn fetch_group_status(driver: &Driver, group: &DpuGroup) -> Result<RunStatus, Cl
 
     let mut global_status = RunStatus::default();
 
-    for dpu in &group.dpus {
+    for dpu in group.active_dpus() {
         let status = driver.fetch_status(&View::one(dpu.clone()))?;
         global_status = global_status.merge_with(&status)
     }

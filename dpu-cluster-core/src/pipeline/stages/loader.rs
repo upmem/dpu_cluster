@@ -84,7 +84,7 @@ fn load_input_chunk<T>(driver: &Driver, group: &DpuGroup, chunk: Vec<Vec<InputMe
                 Ok(_) => {
                     let mut is_ok = true;
 
-                    for dpu in &group.dpus {
+                    for dpu in group.active_dpus() {
                         match driver.boot(&View::one(dpu.clone())) {
                             Ok(_) => (),
                             Err(err) => {
@@ -108,11 +108,13 @@ fn do_memory_transfers(driver: &Driver, group: &DpuGroup, mut chunk: Vec<Vec<Inp
         memory_transfers.push(MemoryTransfer::default());
     }
 
+    let dpus = group.active_dpus().collect::<Vec<_>>();
+
     for (idx, transfers) in chunk.iter_mut().enumerate() {
         for (i, transfer) in transfers.iter_mut().enumerate() {
             let memory_transfer = memory_transfers.get_mut(i).unwrap();
 
-            memory_transfer.add_in_place(group.dpus.get(idx).unwrap().clone(), transfer.offset, transfer.content.as_mut_slice());
+            memory_transfer.add_in_place(*dpus.get(idx).unwrap().clone(), transfer.offset, transfer.content.as_mut_slice());
         }
     }
 
