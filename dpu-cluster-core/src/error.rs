@@ -1,5 +1,5 @@
 use dpu_sys::DpuError;
-use dpu::DpuId;
+use crate::dpu::DpuId;
 
 #[derive(Debug, Clone)]
 pub enum ClusterError {

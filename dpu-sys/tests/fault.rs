@@ -1,4 +1,4 @@
-extern crate dpu_sys;
+
 
 use dpu_sys::DpuError;
 use dpu_sys::DpuRank;

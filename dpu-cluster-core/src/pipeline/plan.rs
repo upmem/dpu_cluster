@@ -1,16 +1,16 @@
-use program::Program;
-use pipeline::transfer::MemoryTransfers;
-use pipeline::GroupPolicy;
-use pipeline::output::Output;
-use pipeline::PipelineError;
-use pipeline::monitoring::EventMonitor;
-use cluster::Cluster;
-use pipeline::monitoring::Event;
-use view::View;
-use pipeline::pipeline::Pipeline;
+use crate::program::Program;
+use crate::pipeline::transfer::MemoryTransfers;
+use crate::pipeline::GroupPolicy;
+use crate::pipeline::output::Output;
+use crate::pipeline::PipelineError;
+use crate::pipeline::monitoring::EventMonitor;
+use crate::cluster::Cluster;
+use crate::pipeline::monitoring::Event;
+use crate::view::View;
+use crate::pipeline::pipeline::Pipeline;
 use std::sync::Arc;
-use pipeline::monitoring::RecordPolicy;
-use pipeline::transfer::InputMemoryTransfer;
+use crate::pipeline::monitoring::RecordPolicy;
+use crate::pipeline::transfer::InputMemoryTransfer;
 use std::hash::Hash;
 
 pub struct Plan<'a, Model, InputIterator> {

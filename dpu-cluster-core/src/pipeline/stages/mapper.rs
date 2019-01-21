@@ -1,25 +1,25 @@
-use pipeline::stages::Stage;
-use pipeline::monitoring::Event;
-use pipeline::stages::DpuGroup;
+use crate::pipeline::stages::Stage;
+use crate::pipeline::monitoring::Event;
+use crate::pipeline::stages::DpuGroup;
 use std::sync::mpsc::Receiver;
-use pipeline::transfer::MemoryTransfers;
+use crate::pipeline::transfer::MemoryTransfers;
 use std::sync::Mutex;
 use std::sync::Arc;
-use pipeline::monitoring::EventMonitor;
-use pipeline::monitoring::Process;
+use crate::pipeline::monitoring::EventMonitor;
+use crate::pipeline::monitoring::Process;
 use std::sync::mpsc::Sender;
-use pipeline::transfer::OutputMemoryTransfer;
-use pipeline::transfer::InputMemoryTransfer;
+use crate::pipeline::transfer::OutputMemoryTransfer;
+use crate::pipeline::transfer::InputMemoryTransfer;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use dpu::DpuId;
+use crate::dpu::DpuId;
 use std::hash::Hash;
-use pipeline::OutputResult;
+use crate::pipeline::OutputResult;
 use std::sync::mpsc::SyncSender;
-use pipeline::PipelineError;
-use pipeline::GroupId;
-use cluster::Cluster;
-use memory::MemoryTransfer;
+use crate::pipeline::PipelineError;
+use crate::pipeline::GroupId;
+use crate::cluster::Cluster;
+use crate::memory::MemoryTransfer;
 
 struct BaseMapper<InputItem, InputHandle> {
     groups: Vec<DpuGroup>,
@@ -33,13 +33,13 @@ struct BaseMapper<InputItem, InputHandle> {
 
 pub struct SimpleMapper<InputItem, InputHandle> {
     base: BaseMapper<InputItem, InputHandle>,
-    get_transfers: Box<Fn(InputItem) -> MemoryTransfers<InputHandle> + Send>
+    get_transfers: Box<dyn Fn(InputItem) -> MemoryTransfers<InputHandle> + Send>
 }
 
 pub struct PersistentMapper<InputItem, InputHandle, FragmentId, FragmentIterator> {
     base: BaseMapper<InputItem, InputHandle>,
     cluster: Arc<Cluster>,
-    get_transfers: Box<Fn(InputItem) -> (FragmentId, MemoryTransfers<InputHandle>) + Send>,
+    get_transfers: Box<dyn Fn(InputItem) -> (FragmentId, MemoryTransfers<InputHandle>) + Send>,
     output_sender: SyncSender<OutputResult<InputHandle>>,
     mapping: Box<FragmentIterator>
 }
@@ -48,7 +48,7 @@ impl <I, K> SimpleMapper<I, K>
     where I: Send + 'static,
           K: Send + 'static
 {
-    pub fn new(get_transfers: Box<Fn(I) -> MemoryTransfers<K> + Send>,
+    pub fn new(get_transfers: Box<dyn Fn(I) -> MemoryTransfers<K> + Send>,
                groups: Vec<DpuGroup>,
                input_receiver: Receiver<I>,
                group_receiver: Receiver<DpuGroup>,
@@ -70,7 +70,7 @@ impl <I, K, D, IT> PersistentMapper<I, K, D, IT>
           D: Eq + Hash + Send + 'static,
           IT: Iterator<Item=(D, InputMemoryTransfer)>
 {
-    pub fn new(get_transfers: Box<Fn(I) -> (D, MemoryTransfers<K>) + Send>,
+    pub fn new(get_transfers: Box<dyn Fn(I) -> (D, MemoryTransfers<K>) + Send>,
                groups: Vec<DpuGroup>,
                input_receiver: Receiver<I>,
                group_receiver: Receiver<DpuGroup>,
@@ -180,7 +180,7 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
             for dpu in &group.dpus {
                 match self.mapping.next() {
                     None => break,
-                    Some((fragment_id, mut fragment_transfer)) => {
+                    Some((fragment_id, fragment_transfer)) => {
                         mapping.insert(fragment_id, (*dpu, group_id));
                         transfers.push((*dpu, fragment_transfer));
                         used_dpus.push(*dpu);
@@ -250,7 +250,7 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
                             available_groups.insert(group_id, (group, HashMap::default()));
                         },
                         Some(group_entry) => {
-                            let mut first_entry = extract_first_waiting_input(group_entry);
+                            let first_entry = extract_first_waiting_input(group_entry);
 
                             if is_group_complete(&group, &first_entry) {
                                 build_and_launch_group(group, first_entry, &self.base.transfer_sender);

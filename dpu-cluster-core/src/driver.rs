@@ -1,15 +1,15 @@
-use dpu::DpuId;
+use crate::dpu::DpuId;
 use dpu_sys::DpuRank;
 use dpu_sys::DpuRankDescription;
 use dpu_sys::DpuRankTransferMatrix;
-use error::ClusterError;
-use program::Program;
-use view::FastSelection;
-use view::Selection;
-use view::View;
+use crate::error::ClusterError;
+use crate::program::Program;
+use crate::view::FastSelection;
+use crate::view::Selection;
+use crate::view::View;
 use dpu_sys::DpuDebugContext;
-use memory::MemoryTransfer;
-use memory::MemoryTransferRankEntry;
+use crate::memory::MemoryTransfer;
+use crate::memory::MemoryTransferRankEntry;
 use dpu_sys::DpuTarget;
 
 #[derive(Debug)]
@@ -146,7 +146,7 @@ impl Driver {
         }
     }
 
-    pub fn copy_to_memory(&self, data: &mut MemoryTransfer) -> Result<(), ClusterError> {
+    pub fn copy_to_memory(&self, data: &mut MemoryTransfer<'_>) -> Result<(), ClusterError> {
         for (rank_id, rank_transfers) in data.0.iter_mut() {
             let rank= self.rank_handler.get_rank(*rank_id);
             let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
@@ -156,7 +156,7 @@ impl Driver {
         Ok(())
     }
 
-    pub fn copy_from_memory(&self, data: &mut MemoryTransfer) -> Result<(), ClusterError> {
+    pub fn copy_from_memory(&self, data: &mut MemoryTransfer<'_>) -> Result<(), ClusterError> {
         for (rank_id, rank_transfers) in data.0.iter_mut() {
             let rank= self.rank_handler.get_rank(*rank_id);
             let matrix = self.create_transfer_matrix_for(rank, rank_transfers)?;
@@ -372,7 +372,7 @@ impl Driver {
         }
     }
 
-    fn create_transfer_matrix_for<'a>(&self, rank: &'a DpuRank, data: &mut MemoryTransferRankEntry) -> Result<DpuRankTransferMatrix<'a>, ClusterError> {
+    fn create_transfer_matrix_for<'a>(&self, rank: &'a DpuRank, data: &mut MemoryTransferRankEntry<'_>) -> Result<DpuRankTransferMatrix<'a>, ClusterError> {
         let matrix = DpuRankTransferMatrix::allocate_for(rank)?;
 
         for (dpu, image) in data.0.iter_mut() {

@@ -1,27 +1,27 @@
 use std::sync::mpsc::Receiver;
-use pipeline::OutputResult;
-use pipeline::ThreadHandle;
+use crate::pipeline::OutputResult;
+use crate::pipeline::ThreadHandle;
 use std::sync::Mutex;
 use std::sync::Arc;
-use cluster::Cluster;
-use pipeline::transfer::MemoryTransfers;
+use crate::cluster::Cluster;
+use crate::pipeline::transfer::MemoryTransfers;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::sync_channel;
-use pipeline::stages::initializer::InputInitializer;
-use pipeline::stages::loader::InputLoader;
-use pipeline::stages::tracker::ExecutionTracker;
-use pipeline::stages::fetcher::OutputFetcher;
-use dpu::DpuId;
-use pipeline::stages::DpuGroup;
-use pipeline::monitoring::EventMonitor;
+use crate::pipeline::stages::initializer::InputInitializer;
+use crate::pipeline::stages::loader::InputLoader;
+use crate::pipeline::stages::tracker::ExecutionTracker;
+use crate::pipeline::stages::fetcher::OutputFetcher;
+use crate::dpu::DpuId;
+use crate::pipeline::stages::DpuGroup;
+use crate::pipeline::monitoring::EventMonitor;
 use std::time::Duration;
 use dpu_sys::DpuType;
-use pipeline::stages::Stage;
-use pipeline::stages::mapper::SimpleMapper;
-use pipeline::GroupPolicy;
-use pipeline::stages::mapper::PersistentMapper;
+use crate::pipeline::stages::Stage;
+use crate::pipeline::stages::mapper::SimpleMapper;
+use crate::pipeline::GroupPolicy;
+use crate::pipeline::stages::mapper::PersistentMapper;
 use std::hash::Hash;
-use pipeline::transfer::InputMemoryTransfer;
+use crate::pipeline::transfer::InputMemoryTransfer;
 
 pub struct Pipeline<K> {
     pub output_receiver: Receiver<OutputResult<K>>,

@@ -1,4 +1,4 @@
-extern crate dpu_cluster_core;
+
 
 use dpu_cluster_core::config::ClusterConfiguration;
 use dpu_cluster_core::cluster::Cluster;

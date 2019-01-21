@@ -1,7 +1,7 @@
-use dpu::DpuId;
-use pipeline::transfer::OutputMemoryTransfer;
-use pipeline::GroupId;
-use pipeline::ThreadHandle;
+use crate::dpu::DpuId;
+use crate::pipeline::transfer::OutputMemoryTransfer;
+use crate::pipeline::GroupId;
+use crate::pipeline::ThreadHandle;
 use std::thread;
 
 pub mod initializer;

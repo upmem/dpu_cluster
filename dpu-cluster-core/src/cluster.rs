@@ -1,11 +1,11 @@
-use config::ClusterConfiguration;
-use driver::Driver;
+use crate::config::ClusterConfiguration;
+use crate::driver::Driver;
 use dpu_sys::DpuRank;
 use dpu_sys::DpuRankDescription;
 use dpu_sys::DpuTarget;
-use error::ClusterError;
-use dpu::Mapping;
-use dpu::DpuId;
+use crate::error::ClusterError;
+use crate::dpu::Mapping;
+use crate::dpu::DpuId;
 
 #[derive(Debug)]
 pub struct Cluster {
@@ -83,7 +83,7 @@ fn allocate_at_least(nr_of_dpus: u32, description: &DpuRankDescription, target: 
     let (dpu_type, ref profile) = target.to_cni_args();
 
     for _ in 0..nr_of_ranks {
-        let mut rank = DpuRank::allocate_for(dpu_type, profile)?;
+        let rank = DpuRank::allocate_for(dpu_type, profile)?;
         rank.reset_all()?;
         ranks.push(rank);
     }

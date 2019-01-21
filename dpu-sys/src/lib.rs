@@ -1,4 +1,4 @@
-extern crate libc;
+
 
 use libc::{c_void, c_uchar, c_char, c_uint, c_ushort, c_ulong};
 use std::ffi::CString;
@@ -277,13 +277,13 @@ fn wrap_cni_status(status: CniStatus) -> Result<(), DpuError> {
 }
 
 impl DpuRank {
-    pub fn find_nr_of_available_dpus_for(dpu_type: DpuType, profile: &str) -> Result<u32, DpuError> {
+    pub fn find_nr_of_available_dpus_for(dpu_type: DpuType, _profile: &str) -> Result<u32, DpuError> {
         // todo
 
         let nr_of_dpus = match dpu_type {
             DpuType::FunctionalSimulator => 8,
             DpuType::Hardware => 0,
-            others => 0
+            _ => 0
         };
 
         Ok(nr_of_dpus)
@@ -432,7 +432,7 @@ impl DpuRank {
         wrap_cni_status(status)
     }
 
-    pub fn copy_to_mrams(&self, matrix: &DpuRankTransferMatrix) -> Result<(), DpuError> {
+    pub fn copy_to_mrams(&self, matrix: &DpuRankTransferMatrix<'_>) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_to_mram_number_for_dpus(self.0, matrix.matrix) };
 
         wrap_cni_status(status)
@@ -444,7 +444,7 @@ impl DpuRank {
         wrap_cni_status(status)
     }
 
-    pub fn copy_from_mrams(&self, matrix: &DpuRankTransferMatrix) -> Result<(), DpuError> {
+    pub fn copy_from_mrams(&self, matrix: &DpuRankTransferMatrix<'_>) -> Result<(), DpuError> {
         let status = unsafe { dpu_cni_copy_from_mram_number_for_dpus(self.0, matrix.matrix) };
 
         wrap_cni_status(status)

@@ -1,4 +1,4 @@
-extern crate dpu_cluster_core;
+
 
 use dpu_cluster_core::cluster::Cluster;
 use dpu_cluster_core::config::ClusterConfiguration;
@@ -118,7 +118,7 @@ fn prepare_input_memory_transfers<'a>(dpu: DpuId, strings: &'a mut [u8], address
     vec![strings_tranfer, addresses_tranfer, nb_of_words_tranfer]
 }
 
-fn prepare_output_memory_transfer(dpu: DpuId, output: &mut [u32]) -> MemoryTransfer {
+fn prepare_output_memory_transfer(dpu: DpuId, output: &mut [u32]) -> MemoryTransfer<'_> {
     MemoryTransfer::default().add(dpu, ADDRESSES_OFFSET, output)
 }
 

@@ -1,4 +1,4 @@
-use dpu::DpuId;
+use crate::dpu::DpuId;
 
 pub enum Selection<T> {
     All,

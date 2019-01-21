@@ -1,6 +1,6 @@
-use pipeline::GroupId;
+use crate::pipeline::GroupId;
 use chrono::Local;
-use dpu::DpuId;
+use crate::dpu::DpuId;
 
 #[derive(Debug)]
 pub enum Event {

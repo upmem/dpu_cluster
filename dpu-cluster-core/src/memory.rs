@@ -1,4 +1,4 @@
-use dpu::DpuId;
+use crate::dpu::DpuId;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 

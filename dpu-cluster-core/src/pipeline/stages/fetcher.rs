@@ -1,18 +1,18 @@
-use pipeline::OutputResult;
-use pipeline::stages::DpuGroup;
+use crate::pipeline::OutputResult;
+use crate::pipeline::stages::DpuGroup;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::Mutex;
-use memory::MemoryTransfer;
-use pipeline::PipelineError;
-use pipeline::stages::GroupJob;
-use cluster::Cluster;
-use pipeline::monitoring::EventMonitor;
-use pipeline::monitoring::Process;
-use pipeline::monitoring::Event;
+use crate::memory::MemoryTransfer;
+use crate::pipeline::PipelineError;
+use crate::pipeline::stages::GroupJob;
+use crate::cluster::Cluster;
+use crate::pipeline::monitoring::EventMonitor;
+use crate::pipeline::monitoring::Process;
+use crate::pipeline::monitoring::Event;
 use std::sync::mpsc::SyncSender;
-use pipeline::stages::Stage;
+use crate::pipeline::stages::Stage;
 
 pub struct OutputFetcher<InputHandle> {
     cluster: Arc<Cluster>,

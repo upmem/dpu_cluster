@@ -1,5 +1,5 @@
-use pipeline::OutputResult;
-use pipeline::pipeline::Pipeline;
+use crate::pipeline::OutputResult;
+use crate::pipeline::pipeline::Pipeline;
 
 pub struct Output<K> {
     pipeline: Pipeline<K>

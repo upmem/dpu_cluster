@@ -1,7 +1,7 @@
 use std::thread::JoinHandle;
 
-use dpu::DpuId;
-use error::ClusterError;
+use crate::dpu::DpuId;
+use crate::error::ClusterError;
 
 pub mod plan;
 pub mod transfer;

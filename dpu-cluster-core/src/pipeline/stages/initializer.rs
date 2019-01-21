@@ -1,10 +1,10 @@
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::sync::Mutex;
-use pipeline::monitoring::EventMonitor;
-use pipeline::monitoring::Event;
-use pipeline::monitoring::Process;
-use pipeline::stages::Stage;
+use crate::pipeline::monitoring::EventMonitor;
+use crate::pipeline::monitoring::Event;
+use crate::pipeline::monitoring::Process;
+use crate::pipeline::stages::Stage;
 
 pub struct InputInitializer<InputItem, InputIterator> {
     iterator: Box<InputIterator>,
