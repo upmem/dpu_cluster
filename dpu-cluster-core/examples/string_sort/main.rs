@@ -1,5 +1,3 @@
-
-
 use dpu_cluster_core::cluster::Cluster;
 use dpu_cluster_core::config::ClusterConfiguration;
 use dpu_cluster_core::error::ClusterError;

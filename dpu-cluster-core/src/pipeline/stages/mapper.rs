@@ -239,7 +239,7 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
                 },
             }
 
-            if !waiting_inputs.is_empty() {
+            if still_some_waiting_inputs(&waiting_inputs) {
                 let new_groups = fetch_available_groups(&self.base.group_receiver);
 
                 for group in new_groups {
@@ -263,8 +263,29 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
             }
         }
 
+        for (_, (group, dpus)) in available_groups {
+            build_and_launch_group(group, dpus, &self.base.transfer_sender);
+        }
+
+        while still_some_waiting_inputs(&waiting_inputs) {
+            let new_groups = fetch_available_groups(&self.base.group_receiver);
+
+            for group in new_groups {
+                let group_id = group.id;
+
+                if let Some(group_entry) = waiting_inputs.get_mut(&group_id) {
+                    let first_entry = extract_first_waiting_input(group_entry);
+                    build_and_launch_group(group, first_entry, &self.base.transfer_sender);
+                }
+            }
+        }
+
         monitoring.record(Event::ProcessEnd);
     }
+}
+
+fn still_some_waiting_inputs<K>(waiting_inputs: &HashMap<GroupId, HashMap<DpuId, Vec<MemoryTransfers<K>>>>) -> bool {
+    waiting_inputs.iter().any(|(_, e)| e.values().any(|v| !v.is_empty()))
 }
 
 fn is_group_complete<T>(group: &DpuGroup, entries: &HashMap<DpuId, T>) -> bool {

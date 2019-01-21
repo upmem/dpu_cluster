@@ -1,5 +1,3 @@
-
-
 use libc::{c_void, c_uchar, c_char, c_uint, c_ushort, c_ulong};
 use std::ffi::CString;
 use std::collections::HashMap;
@@ -9,7 +7,7 @@ use std::vec::Vec;
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-enum CniStatus {
+pub enum CniStatus {
     Success,
     AllocationError,
     InvalidDpuTypeError,
@@ -29,7 +27,7 @@ enum CniStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct DpuError(CniStatus);
+pub struct DpuError(pub CniStatus);
 
 #[derive(Debug)]
 #[repr(C)]
@@ -99,12 +97,12 @@ pub struct DpuRankDescription {
 }
 
 pub struct DpuDebugContext {
-    registers: Vec<u32>,
-    pcs: Vec<u16>,
-    atomic_register: Vec<bool>,
-    zero_flags: Vec<bool>,
-    carry_flags: Vec<bool>,
-    scheduling: Vec<u8>,
+    pub registers: Vec<u32>,
+    pub pcs: Vec<u16>,
+    pub atomic_register: Vec<bool>,
+    pub zero_flags: Vec<bool>,
+    pub carry_flags: Vec<bool>,
+    pub scheduling: Vec<u8>,
 
     raw: RawDpuDebugContext
 }
