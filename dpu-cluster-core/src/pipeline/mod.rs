@@ -17,7 +17,8 @@ pub enum PipelineError {
     InfrastructureError(ClusterError),
     ExecutionError(DpuId),
     // todo: add fragment id info
-    UnknownFragmentId
+    UnknownFragmentId,
+    TooManyFragments,
 }
 
 impl From<ClusterError> for PipelineError {

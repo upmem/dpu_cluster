@@ -204,7 +204,11 @@ impl <I, K, D, IT> Stage for PersistentMapper<I, K, D, IT>
             }
         }
 
-        Ok(())
+        if let Some(_) = self.mapping.next() {
+            Err(PipelineError::TooManyFragments)
+        } else {
+            Ok(())
+        }
     }
 
     fn run(mut self) {
